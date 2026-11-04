@@ -5,8 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import APIError
 from app.deps.db import get_db
-from app.schemas.auth import SignupRequest, SignupResponse
-from app.services.auth import EmailAlreadyExistsError, signup
+from app.schemas.auth import LoginRequest, RefreshRequest, SignupRequest, SignupResponse, TokenResponse
+from app.services.auth import (
+    EmailAlreadyExistsError, InvalidCredentialsError, InvalidRefreshTokenError,
+    login, refresh_tokens, signup,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -33,3 +36,33 @@ async def signup_user(
     except EmailAlreadyExistsError:
         raise APIError(409, "EMAIL_ALREADY_EXISTS", "이미 등록된 이메일입니다.") from None
     return SignupResponse.model_validate(user)
+
+
+@router.post(
+    "/login", response_model=TokenResponse,
+    responses={400: {"description": "입력 검증 실패"}, 401: {"description": "인증 실패"}, "4XX": {"description": "공통 오류 응답"}},
+)
+async def login_user(
+    payload: LoginRequest,
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> TokenResponse:
+    try:
+        pair = await login(session, email=payload.email, password=payload.password.get_secret_value())
+    except InvalidCredentialsError:
+        raise APIError(401, "INVALID_CREDENTIALS", "이메일 또는 비밀번호가 올바르지 않습니다.") from None
+    return TokenResponse.model_validate(pair)
+
+
+@router.post(
+    "/refresh", response_model=TokenResponse,
+    responses={400: {"description": "입력 검증 실패"}, 401: {"description": "갱신 토큰 검증 실패"}, "4XX": {"description": "공통 오류 응답"}},
+)
+async def refresh_user_tokens(
+    payload: RefreshRequest,
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> TokenResponse:
+    try:
+        pair = await refresh_tokens(session, refresh_token=payload.refresh_token.get_secret_value())
+    except InvalidRefreshTokenError:
+        raise APIError(401, "INVALID_REFRESH_TOKEN", "유효한 갱신 토큰이 필요합니다.") from None
+    return TokenResponse.model_validate(pair)

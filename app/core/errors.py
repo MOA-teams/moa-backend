@@ -6,16 +6,18 @@ from fastapi.responses import JSONResponse
 
 
 class APIError(Exception):
-    def __init__(self, status_code: int, code: str, message: str) -> None:
+    def __init__(self, status_code: int, code: str, message: str, *, headers: dict[str, str] | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
+        self.headers = headers
 
 
-def error_response(request: Request, status_code: int, code: str, message: str) -> JSONResponse:
+def error_response(request: Request, status_code: int, code: str, message: str, *, headers: dict[str, str] | None = None) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
+        headers=headers,
         content={"error": {
             "code": code,
             "message": message,
@@ -34,7 +36,7 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(APIError)
     async def handle_api_error(request: Request, error: APIError) -> JSONResponse:
-        return error_response(request, error.status_code, error.code, error.message)
+        return error_response(request, error.status_code, error.code, error.message, headers=error.headers)
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(request: Request, error: RequestValidationError) -> JSONResponse:
