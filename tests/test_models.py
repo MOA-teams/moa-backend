@@ -60,7 +60,7 @@ async def test_migration_matches_models_and_supports_downgrade(db_engine, migrat
         differences = await connection.run_sync(lambda conn: compare_metadata(MigrationContext.configure(conn), Base.metadata))
         assert differences == []
         tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-        assert set(tables) == {"users", "alembic_version"}
+        assert set(tables) == {"users", "refresh_tokens", "alembic_version"}
         columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
         identity = next(column for column in columns if column["name"] == "user_id")
         assert identity["identity"]["start"] == 1
@@ -74,3 +74,19 @@ async def test_migration_matches_models_and_supports_downgrade(db_engine, migrat
     async with db_engine.begin() as connection:
         await connection.run_sync(migrate, "upgrade", "head")
         assert await connection.run_sync(lambda conn: inspect(conn).has_table("users"))
+
+
+async def test_refresh_migration_preserves_existing_users(db_engine, migrate):
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "downgrade", "0001_create_users")
+        await connection.execute(text("INSERT INTO users(email,password,role) VALUES ('preserved@example.com','test-only','agent')"))
+        before = (await connection.execute(text("SELECT user_id,email,password,role,created_at,updated_at FROM users"))).one()
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "upgrade", "head")
+        after = (await connection.execute(text("SELECT user_id,email,password,role,created_at,updated_at FROM users"))).one()
+        assert before == after
+        assert await connection.run_sync(lambda conn: inspect(conn).has_table("refresh_tokens"))
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "downgrade", "0001_create_users")
+        assert not await connection.run_sync(lambda conn: inspect(conn).has_table("refresh_tokens"))
+        assert (await connection.execute(text("SELECT user_id,email,password,role,created_at,updated_at FROM users"))).one() == before
