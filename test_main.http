@@ -1,0 +1,11 @@
+### 서버 응답 확인: 200, {"status": "ok"}
+GET http://127.0.0.1:8000/health
+Accept: application/json
+
+### OpenAPI 명세: MOA Backend, /health 포함
+GET http://127.0.0.1:8000/openapi.json
+Accept: application/json
+
+### Swagger UI HTML 제공 확인
+GET http://127.0.0.1:8000/docs
+Accept: text/html
