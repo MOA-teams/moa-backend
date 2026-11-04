@@ -1,4 +1,4 @@
-# MOA 인터페이스 규칙 (v0.2 초안)
+# MOA 인터페이스 규칙 (v0.3 초안)
 
 > 싱크노트(가상 회사)·시드 데이터 ↔ MOA 백엔드·프론트가 맞물리는 지점의 형식 약속.
 > **⚠ 결정 필요** 표시가 붙은 항목은 팀 합의 후 값을 채우고 이 문서를 v1.0으로 올린다.
@@ -59,8 +59,18 @@
 ```json
 {
   "evidence": {
-  "docs": [{ "doc_id": "DOC-002", "version": 3 }],
-  "code": [{ "path": "billing/pricing.ts", "commit_sha": "a1b2c3d" }]
+    "docs": [
+      {
+        "doc_id": "DOC-002",
+        "version": 3
+      }
+    ],
+    "code": [
+      {
+        "path": "billing/pricing.ts",
+        "commit_sha": "a1b2c3d"
+      }
+    ]
   }
 }
 ```
@@ -362,12 +372,16 @@ config/prod.env.example       보안 시연용 가짜 키
 - 보안 레벨 1(메타데이터만) 시연은 커밋 메시지와 변경 경로만으로 영향 분석한다.
 - 커밋 시각은 CSV 타임라인과 맞춘다 (`GIT_AUTHOR_DATE`, `GIT_COMMITTER_DATE` 지정)
 
-| 커밋 | 시각 |
-|---|---|
-| v2.4.0 릴리즈 (저장 방식 변경, Android 미리보기 엔진 교체) | 2026-10-30 |
-| E-502 유발 (`sync/saveHandler.ts`) | 2026-11-03 13:50 |
-| E-502 수정 | 2026-11-03 15:30 |
-| 요금 변경 9,900 → 12,900 | `release/pricing`에만, 데모 때 머지 |
+| 커밋 | 시각 | 브랜치 |
+|---|---|---|
+| 환불 정책 14일 → 7일 (`billing/refund.ts`) | 2026-10-15 10:05 | main |
+| 묶음 저장 도입 (`sync/saveHandler.ts`) | 2026-10-30 11:30 | main |
+| Android 미리보기 엔진 교체 (`preview/androidImageEngine.kt`) → G-004 원인 | 2026-10-30 12:10 | main |
+| E-502 유발: 묶음 병합 제거 (`sync/saveHandler.ts`) | 2026-11-03 13:50 | main (태그 `demo-start`) |
+| E-502 수정 | 2026-11-03 15:30 | `fix/e502-batch` (머지 안 함) |
+| 요금 변경 9,900 → 12,900 (`billing/pricing.ts`) | 2026-11-04 18:00 | `release/pricing` (태그 `pricing-start`, 데모 때 PR 머지) |
+
+전체 커밋 목록은 `싱크노트_개발명세서.md` 11장 기준.
 
 ### 5-4. GitHub App·webhook
 - 권한: Contents **Read**, Metadata **Read**, Issues **Read & Write**, Pull requests **Read**
@@ -418,7 +432,7 @@ config/prod.env.example       보안 시연용 가짜 키
 
 명령 하나로 아래를 순서대로 실행한다.
 1. 모아 DB 초기화 → 시드 재import: `POST /api/v1/admin/demo/reset` (백엔드, `DEMO_MODE`에서만)
-2. GitHub: `main`을 `demo-start`로 되돌림, `release/pricing` PR 다시 열기, `moa-auto` 라벨 이슈 전부 닫기 (데이터 담당 스크립트)
+2. GitHub: `main`을 `demo-start`로 되돌림, `release/pricing`을 `pricing-start`로 되돌린 뒤 PR 새로 생성(머지된 PR은 다시 열 수 없음), `moa-auto` 라벨 이슈 전부 닫기 (데이터 담당 스크립트)
 3. 싱크노트 장애 스위치 OFF
 
 > main 브랜치 보호 규칙은 꺼둔다 (force push 필요).
@@ -450,4 +464,5 @@ config/prod.env.example       보안 시연용 가짜 키
 | 버전 | 날짜 | 내용 |
 |---|---|---|
 | v0.1 | 2026-11-04 | 초안 |
+| v0.3 | 2026-11-04 | 5-3 커밋 표를 싱크노트 개발명세서와 맞춤 (E-502 수정은 별도 브랜치), 리셋에 `pricing-start` 태그 반영 |
 | v0.2 | 2026-11-04 | 별점 없는 상담(대화 반응) 추가, 변경 전·후 정책 문서(DOC-001 v1/v2, DOC-002 v2/v3)와 `demo/` 폴더, `answer_id` 메시지 연결, 정답 라벨 확장, 무결성 규칙(2-8) 추가 |
