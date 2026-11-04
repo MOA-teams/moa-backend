@@ -14,3 +14,6 @@ venv/
 # IDE and OS
 .idea/
 .DS_Store
+
+# Test runner
+.pytest_cache/
