@@ -32,6 +32,13 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_KEY: ${{ secrets.SSH_KEY }}
         run: |
+          # 붙여넣기 과정에서 섞인 공백/줄바꿈/따옴표 제거
+          SSH_HOST=$(printf '%s' "$SSH_HOST" | tr -d '[:space:]"'"'")
+          SSH_USER=$(printf '%s' "$SSH_USER" | tr -d '[:space:]"'"'")
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_KEY" ]; then
+            echo "SSH_HOST / SSH_USER / SSH_KEY secret 중 비어 있는 값이 있습니다." >&2
+            exit 1
+          fi
           install -m 700 -d ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
