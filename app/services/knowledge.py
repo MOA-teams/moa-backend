@@ -10,6 +10,7 @@ async def lock_knowledge(session, tenant_id):
     return await session.scalar(
         select(Tenant)
         .where(Tenant.tenant_id == tenant_id)
-        .with_for_update()
+        # FOR NO KEY UPDATE: 문의·사용자 INSERT의 FK KEY SHARE 잠금과 호환한다.
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
