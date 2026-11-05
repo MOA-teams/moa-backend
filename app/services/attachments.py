@@ -3,14 +3,14 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi import UploadFile
-from sqlalchemy import select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.core.enums import UserRole
 from app.core.errors import APIError
 from app.core.storage import S3Storage
-from app.db.models import Attachment, Inquiry, Message
+from app.db.models import Attachment, DocumentVersion, Inquiry, Message
 from app.schemas.attachments import AttachmentResponse
 from app.schemas.auth import AuthenticatedUser
 
@@ -70,15 +70,21 @@ async def signed_attachment(attachment: Attachment, storage: S3Storage) -> Attac
 async def upload_attachment(
     session: AsyncSession, *, user: AuthenticatedUser, file: UploadFile,
     storage: S3Storage, request_id: str,
+    purpose: str = "inquiry",
 ) -> AttachmentResponse:
     tenant_id = require_tenant(user)
+    allowed = (purpose == "inquiry" and user.role == UserRole.CUSTOMER) or (
+        purpose == "document" and user.role in (UserRole.AGENT, UserRole.ADMIN)
+    )
+    if not allowed:
+        raise APIError(403, "FORBIDDEN", "이 용도의 첨부를 업로드할 권한이 없습니다.")
     name, extension, mime, size = await validate_upload(file)
     key = f"attachments/{tenant_id}/{user.user_id}/{uuid4().hex}.{extension}"
     try:
         # UUID key는 이 요청만 소유하므로 실패 시 해당 key만 보상 삭제한다.
         await run_in_threadpool(storage.put, key, file.file, mime, size)
         attachment = Attachment(tenant_id=tenant_id, uploader_id=user.user_id, storage_key=key,
-                                file_name=name, mime=mime, size=size)
+                                file_name=name, mime=mime, size=size, purpose=purpose)
         session.add(attachment)
         await session.flush()
         response = await signed_attachment(attachment, storage)
@@ -100,12 +106,18 @@ async def get_attachment(
     tenant_id = require_tenant(user)
     statement = select(Attachment).where(Attachment.attachment_id == attachment_id, Attachment.tenant_id == tenant_id)
     if user.role == UserRole.CUSTOMER:
-        statement = statement.where(Attachment.uploader_id == user.user_id)
+        statement = statement.where(Attachment.uploader_id == user.user_id, Attachment.purpose == "inquiry")
     else:
-        # 담당자는 문의에 연결된 첨부만 조회한다. 타인의 임시 업로드는 보이지 않는다.
-        statement = statement.join(Message, Message.message_id == Attachment.message_id).join(
-            Inquiry, Inquiry.inquiry_id == Message.inquiry_id,
-        ).where(Inquiry.tenant_id == tenant_id)
+        linked_inquiry = exists(select(Message.message_id).join(Inquiry).where(
+            Message.message_id == Attachment.message_id, Inquiry.tenant_id == tenant_id,
+        ))
+        linked_document = exists(select(DocumentVersion.version_id).where(
+            DocumentVersion.attachment_id == Attachment.attachment_id,
+        ))
+        statement = statement.where(or_(
+            and_(Attachment.purpose == "inquiry", linked_inquiry),
+            and_(Attachment.purpose == "document", or_(Attachment.uploader_id == user.user_id, linked_document)),
+        ))
     attachment = await session.scalar(statement)
     if attachment is None:
         raise attachment_not_found()
