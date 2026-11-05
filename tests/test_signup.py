@@ -1,3 +1,4 @@
+from conftest import get_row
 import asyncio
 import logging
 
@@ -19,9 +20,9 @@ VALID = {"email": "user@example.com", "password": "example-password", "role": "c
 async def test_signup_roles_and_response(client, session_factory, role):
     response = await client.post(ENDPOINT, json={**VALID, "email": "User@EXAMPLE.COM", "role": role})
     assert response.status_code == 201
-    assert response.json() == {"user_id": 1, "email": "user@example.com", "role": role}
+    assert response.json() == {"user_id": {"customer": "U-2001", "agent": "agent_01", "admin": "admin_01"}[role], "email": "user@example.com", "role": role}
     async with session_factory() as session:
-        user = await session.get(User, 1)
+        user = await get_row(session, User, 1)
         assert isinstance(user.user_id, int)
         assert user.role is UserRole(role)
         assert await session.scalar(text("SELECT role::text FROM users")) == role
@@ -35,7 +36,7 @@ async def test_password_preserves_spaces_and_never_leaks(client, session_factory
     assert response.status_code == 201
     assert duplicate.status_code == 409
     async with session_factory() as session:
-        user = await session.get(User, response.json()["user_id"])
+        user = await get_row(session, User, response.json()["user_id"])
         assert user.password.startswith("$argon2id$")
         assert PasswordHash.recommended().verify(password, user.password)
         assert not PasswordHash.recommended().verify(password.strip(), user.password)

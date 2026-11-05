@@ -1,12 +1,12 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class AttachmentMetadata(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    attachment_id: int = Field(description="서버가 발급한 숫자 첨부 ID", examples=[1])
+    attachment_id: str = Field(validation_alias=AliasChoices("public_id", "attachment_id"), description="외부 문자열 ID", examples=["ATT-0001"])
     file_name: str = Field(description="원본 파일명. S3 경로로 사용하지 않습니다.", examples=["error.png"])
     mime: str = Field(description="검증한 MIME 유형", examples=["image/png"])
     size: int = Field(description="파일 크기(bytes), 최대 10MiB", examples=[182344])

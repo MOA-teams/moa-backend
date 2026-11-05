@@ -8,9 +8,6 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.core.config import get_settings
 
-AI_STATUS = {"valid": "유효", "retired": "폐기"}
-AI_DOC_TYPE = {"policy": "정책", "faq": "FAQ", "feature_spec": "기능 명세", "release_note": "릴리즈 노트"}
-INDEX_STATUS = {"대기": "pending", "처리 중": "running", "완료": "completed", "실패": "failed"}
 
 
 class RagError(Exception):

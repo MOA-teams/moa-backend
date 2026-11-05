@@ -1,6 +1,7 @@
+from app.core.ids import public_id_default
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, Enum, ForeignKey, Identity, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, BigInteger, CheckConstraint, DateTime, Enum, ForeignKey, Identity, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -11,6 +12,7 @@ category_type = Enum(InquiryCategory, name="inquiry_category", values_callable=l
 
 
 class Inquiry(BaseEntity):
+    public_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, default=public_id_default("inquiry"))
     __tablename__ = "inquiries"
     __table_args__ = (
         Index("ix_inquiries_tenant_created_id", "tenant_id", "created_at", "inquiry_id"),
@@ -22,6 +24,9 @@ class Inquiry(BaseEntity):
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.tenant_id", ondelete="RESTRICT"), nullable=False)
     customer_id: Mapped[int] = mapped_column(ForeignKey("users.user_id", ondelete="RESTRICT"), nullable=False)
     source_customer_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    latest_analysis_request_id: Mapped[str | None] = mapped_column(String(36))
+    classification_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    processing_stage: Mapped[str | None] = mapped_column(String(100))
     title: Mapped[str] = mapped_column(String(100), nullable=False)
     customer_category: Mapped[InquiryCategory] = mapped_column(category_type, nullable=False)
     env: Mapped[dict] = mapped_column(JSONB, nullable=False)
@@ -38,6 +43,7 @@ class Inquiry(BaseEntity):
 
 
 class Message(BaseEntity):
+    public_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, default=public_id_default("message"))
     __tablename__ = "messages"
     __table_args__ = (
         UniqueConstraint("inquiry_id", "sequence", name="uq_messages_inquiry_sequence"),

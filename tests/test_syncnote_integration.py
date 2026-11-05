@@ -1,3 +1,4 @@
+from conftest import get_row
 """싱크노트 유입 정보는 보존하되 인증·문의 소유권은 기존 로그인 사용자로 유지한다."""
 import hashlib
 import json
@@ -19,17 +20,17 @@ def writing(actor, key):
 @pytest.mark.parametrize("external_id", ["U-2001", "000042", "외부고객-가", "x" * 128])
 async def test_external_id_and_environment_are_saved_as_context(client, customer, agent, session_factory, external_id):
     payload = {"message": "저장할 때 오류가 발생해요.", "source_customer_id": external_id,
-               "customer_category": "bug", "env": ENVIRONMENT, "attachments": []}
+               "customer_category": "기능 오류", "env": ENVIRONMENT, "attachments": []}
     response = await client.post(BASE, headers=writing(customer, "syncnote"), json=payload)
     assert response.status_code == 201
     body = response.json()
     assert "source_customer_id" not in body
     async with session_factory() as session:
-        row = await session.get(Inquiry, body["inquiry_id"])
+        row = await get_row(session, Inquiry, body["inquiry_id"])
         assert row.source_customer_id == external_id
         assert row.env == ENVIRONMENT
-        assert row.customer_id == customer["user_id"] and row.tenant_id == customer["tenant_id"]
-        user = await session.get(User, customer["user_id"])
+        assert row.customer_id == customer["internal_id"] and row.tenant_id == customer["tenant_id"]
+        user = await get_row(session, User, customer["user_id"])
         assert user.tenant_id == "alpha" and user.role.value == "customer"
     detail = await client.get(f"/api/v1/admin/inquiries/{body['inquiry_id']}", headers=agent["headers"])
     assert detail.status_code == 200
@@ -51,7 +52,7 @@ async def test_missing_or_null_external_id_keeps_existing_creation_contract(clie
     assert response.status_code == 201
     inquiry_id = response.json()["inquiry_id"]
     async with session_factory() as session:
-        assert (await session.get(Inquiry, inquiry_id)).source_customer_id is None
+        assert (await get_row(session, Inquiry, inquiry_id)).source_customer_id is None
     detail = await client.get(f"/api/v1/admin/inquiries/{inquiry_id}", headers=agent["headers"])
     assert detail.status_code == 200 and detail.json()["source_customer_id"] is None
 
@@ -75,8 +76,8 @@ async def test_external_id_is_not_an_identity_and_does_not_grant_access(client, 
         })
         assert response.status_code == 201
         async with session_factory() as session:
-            row = await session.get(Inquiry, response.json()["inquiry_id"])
-            assert row.customer_id == actor["user_id"] and row.tenant_id == actor["tenant_id"]
+            row = await get_row(session, Inquiry, response.json()["inquiry_id"])
+            assert row.customer_id == actor["internal_id"] and row.tenant_id == actor["tenant_id"]
         forged_headers = {**actor["headers"], "X-Customer-ID": str(customer["user_id"]), "X-Tenant-ID": "alpha"}
         lookup = await client.get(f"{BASE}/{first_id}", headers=forged_headers, params={"cid": "shared-cid", "source_customer_id": "shared-cid"})
         assert lookup.status_code == 404
@@ -106,18 +107,18 @@ async def test_replay_uses_external_id_in_request_fingerprint(client, customer, 
     assert changed.status_code == 409 and changed.json()["error"]["code"] == "IDEMPOTENCY_CONFLICT"
     async with session_factory() as session:
         assert await session.scalar(select(func.count()).select_from(Inquiry)) == 1
-        assert (await session.get(Inquiry, first.json()["inquiry_id"])).source_customer_id == "U-2001"
+        assert (await get_row(session, Inquiry, first.json()["inquiry_id"])).source_customer_id == "U-2001"
 
 
 async def test_replay_of_pre_upgrade_record_is_compatible(client, customer, session_factory):
     first = await client.post(BASE, headers=writing(customer, "initial"), json={"message": "배포 전 문의"})
     assert first.status_code == 201
     # 이전 버전의 정규화 요청에는 source_customer_id 키 자체가 없었다.
-    old_payload = {"message": "배포 전 문의", "customer_category": "other",
+    old_payload = {"message": "배포 전 문의", "customer_category": "기타",
                    "env": {"os": None, "app_version": None, "error_code": None}, "attachments": []}
     old_hash = hashlib.sha256(json.dumps(old_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
     async with session_factory() as session:
-        session.add(IdempotencyRecord(user_id=customer["user_id"], path="/inquiries",
+        session.add(IdempotencyRecord(user_id=customer["internal_id"], path="/inquiries",
                                      key_hash=hashlib.sha256(b"pre-upgrade").hexdigest(), request_hash=old_hash, response=first.json()))
         await session.commit()
     for payload in ({"message": "배포 전 문의"}, {"message": "배포 전 문의", "source_customer_id": None}):

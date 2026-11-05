@@ -5,7 +5,7 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from app.core.enums import DocStatus, IndexingStatus
-from app.core.rag import AI_DOC_TYPE, AI_STATUS, INDEX_STATUS, RagError
+from app.core.rag import RagError
 from app.db.models import Document, DocumentJob, DocumentVersion
 
 TERMINAL_PHASES = ("done", "failed", "superseded")
@@ -35,10 +35,10 @@ def source_payload(document, version, *, revision=None, status=None, review=None
         "tenant_id": document.tenant_id, "source_type": "문서", "source_id": document.ai_source_id,
         "version": version.version, "source_revision": revision if revision is not None else version.source_revision,
         "title": version.title, "text": version.extracted_text, "visibility": "고객 공개",
-        "status": status if status is not None else AI_STATUS[version.status],
+        "status": status if status is not None else version.status.value,
         "review_required": version.review_required if review is None else review,
         "content_hash": version.content_hash,
-        "metadata": {"doc_type": AI_DOC_TYPE[version.doc_type], "created_at": version.authored_at.isoformat()},
+        "metadata": {"doc_type": version.doc_type.value, "created_at": version.authored_at.isoformat()},
         "evidence": {"docs": [], "code": []},
     }
 
@@ -48,7 +48,7 @@ def status_event(document, version, reason, *, revision=None):
         "tenant_id": document.tenant_id, "event_id": f"document-{uuid4().hex}", "reason": reason,
         "sources": [{"source_type": "문서", "source_id": document.ai_source_id, "version": version.version,
                      "source_revision": revision if revision is not None else version.source_revision,
-                     "status": AI_STATUS[version.status], "review_required": version.review_required}],
+                     "status": version.status.value, "review_required": version.review_required}],
     }
 
 
@@ -124,10 +124,10 @@ async def confirm_barrier(session, job_id, rag):
 
 def apply_view(document, version, view):
     if (view.source_revision, view.status, view.review_required) != (
-        version.source_revision, AI_STATUS[version.status], version.review_required,
+        version.source_revision, version.status.value, version.review_required,
     ):
         raise RagError("AI_REVISION_MISMATCH")
-    version.indexing_status = IndexingStatus(INDEX_STATUS[view.indexing_status])
+    version.indexing_status = IndexingStatus(view.indexing_status)
     # 외부 오류 문자열에 원문이 포함될 수 있으므로 실패의 분류만 공개한다.
     version.indexing_error = "AI_INDEXING_FAILED" if view.error or view.indexing_status == "실패" else None
     version.sync_error = None

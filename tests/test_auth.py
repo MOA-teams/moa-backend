@@ -1,3 +1,4 @@
+from conftest import get_row
 import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
@@ -27,7 +28,7 @@ async def test_all_roles_login_with_two_tokens(client, session_factory, role):
     pair = response.json()
     assert set(pair) == {"access_token", "refresh_token"}
     payload = jwt.decode(pair["access_token"], get_settings().jwt_secret_key.get_secret_value(), algorithms=["HS256"])
-    assert payload["sub"] == "1" and payload["role"] == role
+    assert payload["sub"] == {"customer": "U-2001", "agent": "agent_01", "admin": "admin_01"}[role] and payload["role"] == role
     assert payload["token_type"] == "access" and payload["jti"]
     assert payload["exp"] - payload["iat"] == 3600
     async with session_factory() as session:
@@ -138,7 +139,7 @@ async def test_failed_rotation_rolls_back_old_token_deletion(client, account, to
 
 async def test_user_deletion_cascades_and_invalidates_tokens(client, protected_client, account, tokens, session_factory):
     async with session_factory() as session:
-        await session.execute(delete(User).where(User.user_id == account["user_id"]))
+        await session.execute(delete(User).where(User.public_id == account["user_id"]))
         await session.commit()
         assert await session.scalar(select(func.count()).select_from(RefreshToken)) == 0
     assert (await client.post(REFRESH, json={"refresh_token": tokens["refresh_token"]})).status_code == 401
@@ -147,7 +148,7 @@ async def test_user_deletion_cascades_and_invalidates_tokens(client, protected_c
 
 async def test_role_change_rejects_old_access_and_refresh_uses_current_role(client, protected_client, account, tokens, session_factory):
     async with session_factory() as session:
-        await session.execute(update(User).where(User.user_id == account["user_id"]).values(role=UserRole.ADMIN))
+        await session.execute(update(User).where(User.public_id == account["user_id"]).values(role=UserRole.ADMIN))
         await session.commit()
     old = await protected_client.get("/protected", headers={"Authorization": f"Bearer {tokens['access_token']}"})
     assert old.status_code == 401
@@ -159,18 +160,18 @@ async def test_role_change_rejects_old_access_and_refresh_uses_current_role(clie
 
 async def test_login_and_refresh_preserve_user_timestamps(client, account, session_factory):
     async with session_factory() as session:
-        user = await session.get(User, account["user_id"])
+        user = await get_row(session, User, account["user_id"])
         before = (user.created_at, user.updated_at)
     pair = (await client.post(LOGIN, json={"email": account["email"], "password": account["password"]})).json()
     assert (await client.post(REFRESH, json={"refresh_token": pair["refresh_token"]})).status_code == 200
     async with session_factory() as session:
-        user = await session.get(User, account["user_id"])
+        user = await get_row(session, User, account["user_id"])
         assert (user.created_at, user.updated_at) == before
 
 
 async def test_secrets_are_not_logged_or_returned_in_errors(client, account, session_factory, caplog):
     async with session_factory() as session:
-        hashed_password = (await session.get(User, account["user_id"])).password
+        hashed_password = (await get_row(session, User, account["user_id"])).password
     with caplog.at_level(logging.INFO):
         login = await client.post(LOGIN, json={"email": account["email"], "password": account["password"]})
         pair = login.json()

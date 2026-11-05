@@ -1,3 +1,4 @@
+from app.core.ids import public_id_default
 from sqlalchemy import BigInteger, Enum, ForeignKey, Identity, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -6,6 +7,7 @@ from app.db.base import BaseEntity
 
 
 class User(BaseEntity):
+    public_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, default=public_id_default("user"))
     __tablename__ = "users"
     __table_args__ = (Index("ix_users_tenant_id", "tenant_id"),)
 

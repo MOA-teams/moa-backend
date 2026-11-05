@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, SecretStr, field_validator
 
 from app.core.enums import UserRole
 
@@ -25,7 +25,7 @@ class SignupResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    user_id: int = Field(description="서버가 자동 발급한 숫자 사용자 ID", examples=[1], json_schema_extra={"format": "int64"})
+    user_id: str = Field(validation_alias=AliasChoices("public_id", "user_id"), description="외부 문자열 ID", examples=["U-2001"])
     email: EmailStr = Field(description="소문자로 정규화된 이메일", examples=["customer@example.com"])
     role: UserRole = Field(description="계정에 저장된 역할", examples=["customer"])
 
@@ -62,11 +62,12 @@ class TokenResponse(BaseModel):
 
 
 class AuthenticatedUser(BaseModel):
+    internal_user_id: int = Field(exclude=True, repr=False)
     """현재 인증 사용자. 비밀번호·해시·토큰은 포함하지 않습니다."""
 
     model_config = ConfigDict(from_attributes=True)
 
-    user_id: int = Field(description="현재 사용자 숫자 ID", examples=[1], json_schema_extra={"format": "int64"})
+    user_id: str = Field(validation_alias=AliasChoices("public_id", "user_id"), description="외부 문자열 ID", examples=["U-2001"])
     email: EmailStr = Field(description="현재 계정의 이메일", examples=["customer@example.com"])
     role: UserRole = Field(description="DB에서 확인한 현재 역할. 화면 분기와 접근 조건 확인에 사용합니다.", examples=["customer"])
     tenant_id: str | None = Field(default=None, description="현재 소속 기업 ID. 미소속이면 null이며 기업 연결 후 기존 토큰으로 재조회할 수 있습니다.", examples=[None, "syncnote"])

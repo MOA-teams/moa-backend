@@ -62,7 +62,8 @@ async def signed_attachment(attachment: Attachment, storage: S3Storage) -> Attac
     issued_at = datetime.now(timezone.utc)
     url = await run_in_threadpool(storage.download_url, attachment.storage_key)
     return AttachmentResponse(
-        **{name: getattr(attachment, name) for name in ("attachment_id", "file_name", "mime", "size")},
+        attachment_id=attachment.public_id,
+        **{name: getattr(attachment, name) for name in ("file_name", "mime", "size")},
         url=url, expires_at=issued_at + timedelta(seconds=storage.expires_in),
     )
 
@@ -79,11 +80,11 @@ async def upload_attachment(
     if not allowed:
         raise APIError(403, "FORBIDDEN", "이 용도의 첨부를 업로드할 권한이 없습니다.")
     name, extension, mime, size = await validate_upload(file)
-    key = f"attachments/{tenant_id}/{user.user_id}/{uuid4().hex}.{extension}"
+    key = f"attachments/{tenant_id}/{user.internal_user_id}/{uuid4().hex}.{extension}"
     try:
         # UUID key는 이 요청만 소유하므로 실패 시 해당 key만 보상 삭제한다.
         await run_in_threadpool(storage.put, key, file.file, mime, size)
-        attachment = Attachment(tenant_id=tenant_id, uploader_id=user.user_id, storage_key=key,
+        attachment = Attachment(tenant_id=tenant_id, uploader_id=user.internal_user_id, storage_key=key,
                                 file_name=name, mime=mime, size=size, purpose=purpose)
         session.add(attachment)
         await session.flush()
@@ -101,12 +102,12 @@ async def upload_attachment(
 
 
 async def get_attachment(
-    session: AsyncSession, *, user: AuthenticatedUser, attachment_id: int, storage: S3Storage,
+    session: AsyncSession, *, user: AuthenticatedUser, attachment_id: str, storage: S3Storage,
 ) -> AttachmentResponse:
     tenant_id = require_tenant(user)
-    statement = select(Attachment).where(Attachment.attachment_id == attachment_id, Attachment.tenant_id == tenant_id)
+    statement = select(Attachment).where(Attachment.public_id == attachment_id, Attachment.tenant_id == tenant_id)
     if user.role == UserRole.CUSTOMER:
-        statement = statement.where(Attachment.uploader_id == user.user_id, Attachment.purpose == "inquiry")
+        statement = statement.where(Attachment.uploader_id == user.internal_user_id, Attachment.purpose == "inquiry")
     else:
         linked_inquiry = exists(select(Message.message_id).join(Inquiry).where(
             Message.message_id == Attachment.message_id, Inquiry.tenant_id == tenant_id,
@@ -116,7 +117,7 @@ async def get_attachment(
         ))
         statement = statement.where(or_(
             and_(Attachment.purpose == "inquiry", linked_inquiry),
-            and_(Attachment.purpose == "document", or_(Attachment.uploader_id == user.user_id, linked_document)),
+            and_(Attachment.purpose == "document", or_(Attachment.uploader_id == user.internal_user_id, linked_document)),
         ))
     attachment = await session.scalar(statement)
     if attachment is None:

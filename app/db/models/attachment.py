@@ -1,3 +1,4 @@
+from app.core.ids import public_id_default
 from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Identity, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -5,6 +6,7 @@ from app.db.base import BaseEntity
 
 
 class Attachment(BaseEntity):
+    public_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, default=public_id_default("attachment"))
     __tablename__ = "attachments"
     __table_args__ = (
         Index("ix_attachments_uploader_id", "uploader_id"),

@@ -17,14 +17,14 @@ router = APIRouter(prefix="/admin/documents", tags=["documents"], dependencies=[
 User = Annotated[AuthenticatedUser, Depends(get_user)]
 Session = Annotated[AsyncSession, Depends(get_db)]
 Rag = Annotated[RagClient, Depends(get_rag_client)]
-DocId = Annotated[int, Path(gt=0, le=9223372036854775807)]
+DocId = Annotated[str, Path(pattern=r"^DOC-[0-9]{3}$")]
 COMMON_ERRORS = ("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "FORBIDDEN", "TENANT_REQUIRED", "DOCUMENT_NOT_FOUND")
 
 
 @router.post("", status_code=202, response_model=DocumentAccepted, summary="문서 원본과 새 버전 등록",
-             responses=documented_errors(*COMMON_ERRORS, "IDEMPOTENCY_CONFLICT", "DOCUMENT_ID_EXHAUSTED", "DOCUMENT_VERSION_CONFLICT", "DOCUMENT_SYNC_PENDING", "DOCUMENT_SYNC_FAILED", "ATTACHMENT_NOT_FOUND", "ATTACHMENT_ALREADY_LINKED", bearer_auth=True),
+             responses=documented_errors(*COMMON_ERRORS, "IDEMPOTENCY_CONFLICT", "ID_SPACE_EXHAUSTED", "DOCUMENT_VERSION_CONFLICT", "DOCUMENT_SYNC_PENDING", "DOCUMENT_SYNC_FAILED", "ATTACHMENT_NOT_FOUND", "ATTACHMENT_ALREADY_LINKED", bearer_auth=True),
              description="""같은 기업의 agent/admin 전용. 신규 문서는 doc_id를 생략하고 version=1로 등록합니다.
-기존 문서는 숫자 doc_id와 다음 version을 지정합니다. text 또는 purpose=document로 업로드한 본인 attachment_id 하나가 필요합니다.
+기존 문서는 DOC-xxx 형식 doc_id와 다음 version을 지정합니다. text 또는 purpose=document로 업로드한 본인 attachment_id 하나가 필요합니다.
 created_at은 원본 작성 시각이며 타임존 필수입니다. uploaded_at은 서버 접수 시각입니다.
 Idempotency-Key 필수. 같은 키·본문 재시도는 최초 202 응답을 재현하고 다른 본문은 409입니다.
 새 버전의 이전 소스 검색 차단이 확인되지 않으면 원본·작업을 보존하고 503을 반환합니다. 이때 같은 키로 재시도하세요.

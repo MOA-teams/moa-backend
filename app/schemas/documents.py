@@ -5,19 +5,20 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.core.enums import DocStatus, DocType, IndexingStatus
 
-ResourceId = Annotated[int, Field(strict=True, gt=0, le=9223372036854775807)]
+DocumentId = Annotated[str, Field(strict=True, pattern=r"^DOC-[0-9]{3}$")]
+AttachmentId = Annotated[str, Field(strict=True, pattern=r"^ATT-[0-9]{4}$")]
 
 
 class DocumentCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    doc_id: ResourceId | None = None
+    doc_id: DocumentId | None = None
     version: int = Field(strict=True, ge=1, le=2147483647)
     doc_type: DocType
     title: str = Field(min_length=1, max_length=300)
     status: DocStatus = DocStatus.VALID
     created_at: datetime = Field(description="원본 작성 시각. 타임존 필수")
     text: str | None = Field(default=None, min_length=1, max_length=200_000)
-    attachment_id: ResourceId | None = None
+    attachment_id: AttachmentId | None = None
 
     @field_validator("created_at")
     @classmethod
@@ -43,7 +44,7 @@ class DocumentCreateRequest(BaseModel):
 
 
 class DocumentAccepted(BaseModel):
-    doc_id: int
+    doc_id: str
     version: int
     status: DocStatus
     indexing_status: IndexingStatus
@@ -63,7 +64,7 @@ class DocumentStatusRequest(BaseModel):
 
 
 class DocumentStatusResponse(BaseModel):
-    doc_id: int
+    doc_id: str
     version: int
     status: DocStatus
     review_required: bool
@@ -75,7 +76,7 @@ class DocumentSummary(DocumentStatusResponse):
     doc_type: DocType
     created_at: datetime
     uploaded_at: datetime
-    attachment_id: int | None
+    attachment_id: str | None
     indexing_status: IndexingStatus
     indexing_error: str | None
     sync_error: str | None

@@ -26,6 +26,12 @@ def not_found():
 
 
 async def require_document(session, doc_id, tenant_id):
+    # 외부 조회는 기업 범위를 포함한다. 내부 작업의 숫자 PK는 이 경계 밖으로 반환하지 않는다.
+    if isinstance(doc_id, str):
+        internal_id = await session.scalar(select(Document.doc_id).where(Document.tenant_id == tenant_id, Document.ai_source_id == doc_id))
+        if internal_id is None:
+            raise not_found()
+        doc_id = internal_id
     document = await lock_document(session, doc_id)
     if document is None or document.tenant_id != tenant_id:
         raise not_found()
@@ -44,11 +50,13 @@ async def begin_request(session, user, key, payload):
     key_hash = hashlib.sha256(key.encode()).hexdigest()
     request_hash = hashlib.sha256(json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
     await session.execute(insert(IdempotencyRecord).values(
-        user_id=user.user_id, path="/admin/documents", key_hash=key_hash, request_hash=request_hash,
+        user_id=user.internal_user_id, path="/admin/documents", key_hash=key_hash, request_hash=request_hash, contract_version=2,
     ).on_conflict_do_nothing(constraint="uq_idempotency_user_path_key"))
     record = await session.scalar(select(IdempotencyRecord).where(
-        IdempotencyRecord.user_id == user.user_id, IdempotencyRecord.path == "/admin/documents", IdempotencyRecord.key_hash == key_hash,
+        IdempotencyRecord.user_id == user.internal_user_id, IdempotencyRecord.path == "/admin/documents", IdempotencyRecord.key_hash == key_hash,
     ).with_for_update())
+    if record.contract_version != 2:
+        raise APIError(409, "LEGACY_IDEMPOTENCY_KEY", "이전 API 계약의 요청입니다. 처리 결과를 확인해 주세요.")
     if record.request_hash != request_hash:
         raise APIError(409, "IDEMPOTENCY_CONFLICT", "같은 Idempotency-Key로 다른 요청을 보낼 수 없습니다.")
     return record
@@ -58,7 +66,7 @@ async def new_document(session, tenant_id):
     await session.execute(insert(DocumentCounter).values(tenant_id=tenant_id).on_conflict_do_nothing())
     counter = await session.scalar(select(DocumentCounter).where(DocumentCounter.tenant_id == tenant_id).with_for_update())
     if counter.last_number >= 999:
-        raise APIError(409, "DOCUMENT_ID_EXHAUSTED", "이 기업의 AI 문서 ID 999개를 모두 사용했습니다.")
+        raise APIError(503, "ID_SPACE_EXHAUSTED", "발급 가능한 문서 ID 범위를 초과했습니다.")
     counter.last_number += 1
     document = Document(tenant_id=tenant_id, ai_source_id=f"DOC-{counter.last_number:03d}", latest_version=1)
     session.add(document)
@@ -70,14 +78,15 @@ async def document_attachment(session, attachment_id, user):
     if attachment_id is None:
         return
     attachment = await session.scalar(select(Attachment).where(
-        Attachment.attachment_id == attachment_id, Attachment.tenant_id == user.tenant_id,
-        Attachment.uploader_id == user.user_id, Attachment.purpose == "document",
+        Attachment.public_id == attachment_id, Attachment.tenant_id == user.tenant_id,
+        Attachment.uploader_id == user.internal_user_id, Attachment.purpose == "document",
     ).with_for_update())
     if attachment is None:
         raise attachment_not_found()
-    linked = await session.scalar(select(DocumentVersion.version_id).where(DocumentVersion.attachment_id == attachment_id))
+    linked = await session.scalar(select(DocumentVersion.version_id).where(DocumentVersion.attachment_id == attachment.attachment_id))
     if attachment.message_id is not None or linked is not None:
         raise APIError(409, "ATTACHMENT_ALREADY_LINKED", "이미 연결된 첨부입니다.")
+    return attachment.attachment_id
 
 
 async def ensure_accepted(session, job_id, rag):
@@ -93,9 +102,9 @@ async def create_document(session, *, user, payload, key, rag):
         record = await begin_request(session, user, key, payload)
         if record.response:
             response = DocumentAccepted.model_validate(record.response)
-            await require_document(session, response.doc_id, tenant)
+            document = await require_document(session, response.doc_id, tenant)
             job_id = await session.scalar(select(DocumentJob.job_id).join(DocumentVersion).where(
-                DocumentVersion.doc_id == response.doc_id, DocumentVersion.version == response.version,
+                DocumentVersion.doc_id == document.doc_id, DocumentVersion.version == response.version,
                 DocumentJob.source_revision == 1,
             ))
         else:
@@ -115,11 +124,11 @@ async def create_document(session, *, user, payload, key, rag):
                 if old.submission_possible:
                     barrier = status_event(document, old, "새 문서 버전 등록")
                 document.latest_version = payload.version
-            await document_attachment(session, payload.attachment_id, user)
+            attachment_id = await document_attachment(session, payload.attachment_id, user)
             version = DocumentVersion(
-                doc_id=document.doc_id, version=payload.version, uploader_id=user.user_id,
+                doc_id=document.doc_id, version=payload.version, uploader_id=user.internal_user_id,
                 title=payload.title, doc_type=payload.doc_type, status=payload.status,
-                authored_at=payload.created_at, original_text=payload.text, attachment_id=payload.attachment_id,
+                authored_at=payload.created_at, original_text=payload.text, attachment_id=attachment_id,
                 indexing_status=IndexingStatus.PENDING,
             )
             session.add(version)
@@ -128,7 +137,7 @@ async def create_document(session, *, user, payload, key, rag):
                               phase="barrier" if barrier else "extract", barrier=barrier, barrier_confirmed=barrier is None)
             session.add(job)
             await session.flush()
-            response = DocumentAccepted(doc_id=document.doc_id, version=version.version, status=version.status,
+            response = DocumentAccepted(doc_id=document.ai_source_id, version=version.version, status=version.status,
                                         indexing_status=version.indexing_status, uploaded_at=version.created_at)
             record.response = response.model_dump(mode="json")
             job_id = job.job_id
@@ -145,6 +154,7 @@ async def change_status(session, *, user, doc_id, version_number, payload, rag):
     tenant = tenant_for(user)
     try:
         document = await require_document(session, doc_id, tenant)
+        doc_id = document.doc_id
         version = await session.scalar(select(DocumentVersion).where(
             DocumentVersion.doc_id == doc_id, DocumentVersion.version == version_number,
         ))
@@ -184,7 +194,7 @@ async def change_status(session, *, user, doc_id, version_number, payload, rag):
         # 재시도 중 새 변경이 들어왔으면 현재 확정 상태를 다시 읽는다.
         await require_document(session, doc_id, tenant)
         await session.refresh(version)
-        response = DocumentStatusResponse(doc_id=doc_id, version=version_number, status=version.status,
+        response = DocumentStatusResponse(doc_id=document.ai_source_id, version=version_number, status=version.status,
                                           review_required=version.review_required, searchable=version.searchable)
         await session.commit()
         return response
@@ -193,18 +203,18 @@ async def change_status(session, *, user, doc_id, version_number, payload, rag):
         raise
 
 
-def summary(document, version):
+def summary(document, version, attachment_id):
     return DocumentSummary(
-        doc_id=document.doc_id, version=version.version, title=version.title, doc_type=version.doc_type,
+        doc_id=document.ai_source_id, version=version.version, title=version.title, doc_type=version.doc_type,
         status=version.status, review_required=version.review_required, searchable=version.searchable,
-        created_at=version.authored_at, uploaded_at=version.created_at, attachment_id=version.attachment_id,
+        created_at=version.authored_at, uploaded_at=version.created_at, attachment_id=attachment_id,
         indexing_status=version.indexing_status, indexing_error=version.indexing_error, sync_error=version.sync_error,
     )
 
 
 async def list_documents(session, *, user, status, cursor, limit, rag):
     tenant = tenant_for(user)
-    scope = {"type": "documents", "tenant": tenant, "user": user.user_id, "status": status.value if status else None}
+    scope = {"type": "documents", "tenant": tenant, "user": user.internal_user_id, "status": status.value if status else None}
     position = decode_cursor(cursor, scope)
     statement = select(Document.doc_id).join(DocumentVersion, (DocumentVersion.doc_id == Document.doc_id) & (DocumentVersion.version == Document.latest_version)).where(Document.tenant_id == tenant)
     if status is not None:
@@ -220,13 +230,15 @@ async def list_documents(session, *, user, status, cursor, limit, rag):
     items, started = [], time.monotonic()
     for doc_id in ids:
         document = await require_document(session, doc_id, tenant)
+        doc_id = document.doc_id
         version = await session.scalar(select(DocumentVersion).where(DocumentVersion.doc_id == doc_id, DocumentVersion.version == document.latest_version))
         if time.monotonic() - started < 10:
             await refresh_view(session, document, version, rag)
         else:
             version.sync_error, version.searchable = "AI_SYNC_TIMEOUT", False
         if status is None or version.status == status:
-            items.append(summary(document, version))
+            attachment_id = await session.scalar(select(Attachment.public_id).where(Attachment.attachment_id == version.attachment_id)) if version.attachment_id else None
+            items.append(summary(document, version, attachment_id))
         await session.commit()
     return DocumentListResponse(items=items, has_more=has_more,
                                 next_cursor=encode_cursor(scope, {"before": ids[-1]}) if has_more else None)

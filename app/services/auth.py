@@ -56,7 +56,7 @@ class TokenPair:
 def prepare_token_pair(session: AsyncSession, user: User) -> TokenPair:
     refresh_token = create_refresh_token()
     pair = TokenPair(
-        access_token=create_access_token(user.user_id, user.role),
+        access_token=create_access_token(user.public_id, user.role),
         refresh_token=refresh_token,
     )
     session.add(RefreshToken(

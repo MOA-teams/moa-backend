@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
@@ -22,7 +23,7 @@ class InvalidAccessTokenError(Exception):
 
 @dataclass(frozen=True)
 class AccessTokenClaims:
-    user_id: int
+    user_id: str
     role: UserRole
 
 
@@ -37,7 +38,7 @@ def verify_password(password: str, hashed_password: str) -> bool:
         return False
 
 
-def create_access_token(user_id: int, role: UserRole) -> str:
+def create_access_token(user_id: str, role: UserRole) -> str:
     settings = get_settings()
     now = datetime.now(timezone.utc)
     return jwt.encode(
@@ -61,11 +62,9 @@ def decode_access_token(token: str) -> AccessTokenClaims:
         if payload["token_type"] != "access":
             raise InvalidAccessTokenError
         subject = payload["sub"]
-        if not isinstance(subject, str) or not subject.isascii() or not subject.isdigit() or len(subject) > 19:
+        if not isinstance(subject, str) or not re.fullmatch(r"(?:U-[0-9]{4}|agent_[0-9]{2}|admin_[0-9]{2})", subject):
             raise InvalidAccessTokenError
-        user_id = int(subject)
-        if not 1 <= user_id <= 9223372036854775807:
-            raise InvalidAccessTokenError
+        user_id = subject
         return AccessTokenClaims(user_id=user_id, role=UserRole(payload["role"]))
     except (jwt.InvalidTokenError, ValueError, TypeError, KeyError):
         raise InvalidAccessTokenError from None

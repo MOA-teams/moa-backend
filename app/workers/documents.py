@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.enums import DocStatus, IndexingStatus
 from app.core.errors import APIError
-from app.core.rag import INDEX_STATUS, RagError, get_rag_client
+from app.core.rag import RagError, get_rag_client
 from app.core.storage import get_s3_storage
 from app.db.models import Attachment, DocumentJob
 from app.services.document_extraction import ExtractionError, extract_file, validate_text
@@ -82,7 +82,7 @@ async def process_claim(factory, job_id, token, rag, storage=None):
             try:
                 if phase == "submit":
                     result = await rag.submit(document.tenant_id, source_payload(document, version))
-                    version.indexing_status = IndexingStatus(INDEX_STATUS[result.indexing_status])
+                    version.indexing_status = IndexingStatus(result.indexing_status)
                     version.sync_error = version.indexing_error = None
                     job.phase, job.poll_started_at = "poll", utcnow()
                     release(job, delay=5)

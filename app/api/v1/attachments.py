@@ -23,7 +23,7 @@ router = APIRouter(prefix="/attachments", tags=["attachments"])
 purpose 기본값은 inquiry입니다. customer는 inquiry, agent/admin은 document만 업로드할 수 있습니다.
 문서 첨부는 문서 버전 하나에만 연결할 수 있으며 연결 전에는 업로더만 조회합니다.
 PNG·JPEG·PDF, 파일당 10MiB 이하만 허용하며 확장자·MIME·시그니처를 검사합니다.
-성공 응답의 숫자 attachment_id를 문의 생성 또는 메시지 추가의 attachments 배열에 넣으세요.
+성공 응답의 문자열 attachment_id를 문의 생성 또는 메시지 추가의 attachments 배열에 넣으세요.
 파일 하나는 메시지 하나에만 연결할 수 있습니다. 임시 첨부는 업로더만 조회·연결할 수 있습니다.
 url은 기본 300초 동안 유효한 GET URL이며 만료 시 첨부 조회 API로 다시 발급받으세요.
 S3 key나 URL을 요청으로 지정하지 않습니다. 실제 AI 분석은 아직 실행하지 않습니다.""",
@@ -50,7 +50,7 @@ async def upload(
     responses=documented_errors("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "TENANT_REQUIRED", "ATTACHMENT_NOT_FOUND", "STORAGE_UNAVAILABLE", bearer_auth=True),
 )
 async def download(
-    attachment_id: Annotated[int, Path(gt=0, le=9223372036854775807, description="숫자 첨부 ID")],
+    attachment_id: Annotated[str, Path(pattern=r"^ATT-[0-9]{4}$", description="외부 첨부 ID")],
     user: Annotated[AuthenticatedUser, Depends(get_user)],
     session: Annotated[AsyncSession, Depends(get_db)],
     storage: Annotated[S3Storage, Depends(get_s3_storage)],

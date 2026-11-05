@@ -8,26 +8,26 @@ class UserRole(str, Enum):
 
 
 class InquiryCategory(str, Enum):
-    USAGE = "usage"
-    ACCOUNT = "account"
-    BILLING = "billing"
-    BUG = "bug"
-    FEATURE_REQUEST = "feature_request"
-    OTHER = "other"
+    USAGE = "이용 방법"
+    ACCOUNT = "계정"
+    BILLING = "결제"
+    BUG = "기능 오류"
+    FEATURE_REQUEST = "개선 요청"
+    OTHER = "기타"
 
 
 class InquiryUrgency(str, Enum):
-    HIGH = "high"
-    NORMAL = "normal"
-    LOW = "low"
+    HIGH = "높음"
+    NORMAL = "보통"
+    LOW = "낮음"
 
 
 class InquiryStatus(str, Enum):
-    RECEIVED = "received"
-    IN_REVIEW = "in_review"
-    NEEDS_INFO = "needs_info"
-    ANSWERED = "answered"
-    CLOSED = "closed"
+    RECEIVED = "접수"
+    IN_REVIEW = "담당자 확인 중"
+    NEEDS_INFO = "추가 정보 필요"
+    ANSWERED = "답변 완료"
+    CLOSED = "상담 종료"
 
 
 class MessageSender(str, Enum):
@@ -37,26 +37,44 @@ class MessageSender(str, Enum):
 
 
 class MessageType(str, Enum):
-    CUSTOMER_MESSAGE = "customer_message"
-    ACKNOWLEDGEMENT = "acknowledgement"
-    INFORMATION_REQUEST = "information_request"
-    FINAL_ANSWER = "final_answer"
+    CUSTOMER_MESSAGE = "고객 메시지"
+    ACKNOWLEDGEMENT = "접수 안내"
+    INFORMATION_REQUEST = "정보 수집 질문"
+    FINAL_ANSWER = "최종 답변"
+
+
+class RunStatus(str, Enum):
+    PENDING = "대기"
+    RUNNING = "처리 중"
+    COMPLETED = "완료"
+    FAILED = "실패"
+
+class DraftResult(str, Enum):
+    READY = "초안 가능"
+    MANUAL = "직접 확인 필요"
+    NEED_INFO = "추가 질문 필요"
+
+class CheckStatus(str, Enum):
+    PASS = "통과"
+    FAIL = "실패"
+    UNKNOWN = "확인 불가"
+    SKIPPED = "미실행"
 
 
 class DocType(str, Enum):
-    POLICY = "policy"
-    FAQ = "faq"
-    FEATURE_SPEC = "feature_spec"
-    RELEASE_NOTE = "release_note"
+    POLICY = "정책"
+    FAQ = "FAQ"
+    FEATURE_SPEC = "기능 명세"
+    RELEASE_NOTE = "릴리즈 노트"
 
 
 class DocStatus(str, Enum):
-    VALID = "valid"
-    RETIRED = "retired"
+    VALID = "유효"
+    RETIRED = "폐기"
 
 
 class IndexingStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    PENDING = "대기"
+    RUNNING = "처리 중"
+    COMPLETED = "완료"
+    FAILED = "실패"
