@@ -242,6 +242,8 @@ customer는 자기 메시지만 추가. 서버가 message_id를 발급하고 rev
 
 3초 폴링. 처음 cursor 없으면 첫 페이지. 기존 since 지원 시 cursor와 동시 사용 금지. 내부 초안·코드·검수 세부 결과는 고객에게 반환하지 않는다.
 
+`agent_last_read_message_id`는 같은 기업 담당자들의 공통 읽음 위치이며 최초에는 null이다. 빈 메시지 폴링 응답에도 최신 읽음 위치를 반환한다.
+
 쿼리 예시(JSON은 설명용):
 
 ```json
@@ -257,6 +259,7 @@ customer는 자기 메시지만 추가. 서버가 message_id를 발급하고 rev
 {
   "inquiry_id": "Q-1001",
   "status": "추가 정보 필요",
+  "agent_last_read_message_id": "MSG-000003",
   "messages": [
     {
       "message_id": "MSG-000004",
@@ -350,7 +353,87 @@ multipart/form-data의 file 바이너리 필드와 purpose 필드를 사용한�
 }
 ```
 
+### C07 · POST /inquiries/{inquiry_id}/session-events
+
+본인 문의를 가진 customer 전용. `Authorization: Bearer <access_token>`과 JSON 본문이 필요하고 `Idempotency-Key`는 필요 없다.
+
+배포 전 `alembic upgrade head`로 `0010_inquiry_activity`와 병합 revision `0014_inquiry_activity_merge`를 적용한다. 기존 문의는 읽음 기록 없음·`상담 중`으로 시작한다. 기존 main(`0013_groups_github`)과 이탈·읽음(`0010_inquiry_activity`) 어느 쪽에서 시작해도 기존 데이터를 보존하며 하나의 head로 합쳐진다.
+
+이탈·읽음 기능만 롤백할 때는 `alembic downgrade 0010_inquiry_activity@0009_analysis`로 제거할 분기를 명시한다. 이탈 이력과 읽음 위치만 제거하고 기존 main의 답변·그룹·GitHub 데이터와 상담·메시지·AI 분석은 유지한다. 병합 revision만 내리면 양쪽 분기가 남으며, 분기 지정 없이 `0009_analysis`로 내리면 main의 후속 기능도 함께 제거되므로 구분한다.
+
+```json
+{ "type": "left" }
+```
+
+- `left`: 창 닫힘 등 상담 화면 이탈, `new_chat`: 새 상담 시작, `returned`: 기존 상담 복귀.
+- 서버 수신 순서로 상태를 반영한다. 같은 유형의 연속 요청은 중복 기록하지 않는다. `new_chat` 다음의 `left`는 새 상담 이탈 사유를 유지한다.
+- 최초 상태는 `상담 중`이다. 이탈 시 서버 시각과 사유를 기록하며, `returned` 수신 시 현재 `left_at`·`left_reason`은 null로 비운다. 이전 이벤트 이력은 DB에 보존한다.
+- 종료된 문의에서도 이탈·복귀 기록은 가능하며, 상담을 다시 열지 않는다. GET 조회와 읽음 등록은 복귀 이벤트를 대신하지 않는다.
+- 일반 메시지로 저장하지 않으며 문의 상태·revision·updated_at·AI 분석 요청·분석 결과를 변경하지 않는다. 담당자 전용 시스템 메시지는 이번 API에 포함하지 않는다.
+
+응답 `200`:
+
+```json
+{
+  "customer_presence": {
+    "status": "나감",
+    "left_at": "2026-11-05T14:00:00+09:00",
+    "left_reason": "left"
+  }
+}
+```
+
+브라우저 연동 예시(이 저장소에는 프론트엔드가 없으므로 호출부는 고객 앱에서 구현):
+
+```javascript
+// 새 상담 버튼은 기존 inquiryId에 new_chat을 보내고 새 문의로 전환한다.
+// 같은 전환에서 pagehide가 함께 발생하면 left 중복 전송을 생략한다.
+function reportSessionEvent(inquiryId, type, accessToken) {
+  return fetch(`${apiBaseUrl}/api/v1/inquiries/${inquiryId}/session-events`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ type }),
+    keepalive: type === "left",
+  });
+}
+```
+
+창 닫힘은 `pagehide`에서 `left`, 재진입은 `returned`를 전송한다. keepalive도 브라우저 강제 종료·네트워크 단절 시 전달을 보장하지 않는다. 상태는 마지막 수신 이벤트 기준이며 실시간 접속 보장이 아니다. 현재 본문에는 세션 ID·발생 순번이 없어 여러 탭이나 지연 도착한 이벤트의 실제 발생 순서는 구별할 수 없다.
+
+### C08 · POST /inquiries/{inquiry_id}/read
+
+본인 문의를 가진 customer 전용. 본문은 화면에서 읽은 마지막 메시지 ID다. 발신자 종류와 관계없이 해당 문의 내 메시지 순서의 경계로 사용한다.
+
+```json
+{ "last_read_message_id": "MSG-000004" }
+```
+
+응답 `200`은 실제 저장된 위치다. 중복·과거·동시 요청은 읽음 위치를 뒤로 이동시키지 않는다.
+
+```json
+{ "last_read_message_id": "MSG-000004" }
+```
+
+담당자 상세의 `customer_last_read_message_id`에 반영한다. 읽음 기록이 없으면 null이다. 담당자 화면은 해당 위치까지의 담당자 답변에 `읽음`을 표시한다. 메시지 ID 문자열의 크기를 비교하지 말고 해당 문의의 대화 순서를 기준으로 표시한다.
+
+C07·C08 공통 오류: 입력 오류 400, 인증 누락·만료 401, 역할 불일치·기업 미소속 403, 다른 고객·기업 또는 없는 문의 404(`INQUIRY_NOT_FOUND`). C08에서 없는 메시지·다른 문의의 메시지는 404(`MESSAGE_NOT_FOUND`)다. 추가 필드는 허용하지 않는다.
+
 ## 6. 담당자·분석 요청·발송 API · 백엔드 담당
+
+### 담당자 읽음 · POST /admin/inquiries/{inquiry_id}/read
+
+같은 기업의 agent/admin 전용. 본문·응답·중복 및 역순 처리 규칙은 C08과 같다. `Idempotency-Key`는 필요 없다. 문의별로 담당자들이 공유하는 가장 뒤의 읽음 위치를 저장한다.
+
+```json
+{ "last_read_message_id": "MSG-000003" }
+```
+
+고객 대화 GET 응답의 `agent_last_read_message_id`로 반환한다. 고객 화면은 해당 위치까지의 고객 메시지에 `읽음`을 표시한다. 읽음 API는 종료된 문의에도 사용할 수 있으며 문의 상태·revision·updated_at·AI 분석을 변경하지 않는다. GET 조회만으로 읽음 처리하지 않으며 메시지를 화면에 표시한 후 명시적으로 요청한다.
+
+오류: 400 입력 오류, 401 인증 실패, 403 역할·기업 미소속, 404 다른 기업·없는 문의 또는 해당 문의에 없는 메시지. 다른 기업 문의의 존재는 공개하지 않는다.
 
 ### A01 · GET /admin/inquiries
 
@@ -395,6 +478,8 @@ multipart/form-data의 file 바이너리 필드와 purpose 필드를 사용한�
 
 원문·메시지·분류·그룹·최신 파이프라인·초안·검수 조회. 아래 messages는 예시 발췌. 실제 화면에서는 대화를 포함하거나 C03과 같은 페이징 규칙으로 조회한다.
 
+`customer_presence`는 `status: 상담 중 | 나감`, `left_at`, `left_reason: left | new_chat | null`을 포함한다. `customer_last_read_message_id`는 고객 읽음 위치이며 최초에는 null이다. 두 필드는 메시지가 없는 폴링 응답에도 반환한다.
+
 요청 본문 없음.
 
 응답 `200`:
@@ -403,6 +488,8 @@ multipart/form-data의 file 바이너리 필드와 purpose 필드를 사용한�
 {
   "inquiry_id": "Q-1001",
   "revision": 2,
+  "customer_presence": { "status": "나감", "left_at": "2026-11-05T14:00:00+09:00", "left_reason": "new_chat" },
+  "customer_last_read_message_id": "MSG-000002",
   "customer_category": "기타",
   "category": "기능 오류",
   "urgency": "높음",

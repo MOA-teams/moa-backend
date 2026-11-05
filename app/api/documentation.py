@@ -109,6 +109,7 @@ ERROR_DOCUMENTATION = {
     "IDEMPOTENCY_CONFLICT": (409, "같은 Idempotency-Key로 다른 요청을 보낼 수 없습니다.", "중복 키의 요청 본문 불일치"),
     "ATTACHMENT_ALREADY_LINKED": (409, "이미 메시지에 연결된 첨부입니다.", "이미 사용 중인 첨부"),
     "INQUIRY_NOT_FOUND": (404, "문의를 찾을 수 없습니다.", "문의 없음 또는 다른 기업·고객의 문의"),
+    "MESSAGE_NOT_FOUND": (404, "메시지를 찾을 수 없습니다.", "메시지 없음 또는 해당 문의에 속하지 않는 메시지"),
     "INQUIRY_CLOSED": (409, "종료된 문의에는 메시지를 추가할 수 없습니다. 새 문의를 생성해 주세요.", "종료된 상담에 메시지 추가"),
     "INVALID_CURSOR": (400, "유효한 조회 cursor가 필요합니다.", "cursor 변조·조회 대상·필터 불일치"),
     "INVALID_FILE": (400, "파일 이름 또는 내용이 올바르지 않습니다.", "빈 파일·잘못된 파일명"),

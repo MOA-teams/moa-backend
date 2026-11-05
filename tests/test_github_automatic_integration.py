@@ -69,7 +69,7 @@ async def test_released_github_branch_upgrade_and_downgrade_preserve_sources(
         await connection.run_sync(migrate, "upgrade", "head")
         assert (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalars().all() == ["0013_groups_github"]
+        ).scalars().all() == ["0014_inquiry_activity_merge"]
         for table in tables:
             assert (
                 await connection.execute(text(f"SELECT * FROM {table} ORDER BY 1"))

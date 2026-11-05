@@ -13,6 +13,7 @@ from app.services.analysis import detail_analysis
 from app.services.groups import group_public_id
 from app.services.attachments import require_tenant
 from app.services.inquiries import inquiry_not_found, message_page
+from app.services.inquiry_activity import customer_presence, latest_session_event, read_message_id
 
 
 async def list_inquiries(
@@ -71,6 +72,9 @@ async def get_inquiry_detail(
             "env", "category", "urgency", "created_at", "updated_at", "processing_stage",
         )},
         inquiry_id=inquiry.public_id,
+        customer_presence=customer_presence(await latest_session_event(session, inquiry)),
+        customer_last_read_message_id=await read_message_id(session, inquiry, inquiry.customer_last_read_sequence),
+        agent_last_read_message_id=await read_message_id(session, inquiry, inquiry.agent_last_read_sequence),
         customer_id=await session.scalar(select(User.public_id).where(User.user_id == inquiry.customer_id)),
         messages=messages, next_cursor=next_cursor, has_more=has_more,
         latest_customer_message_id=latest_customer_message_id,

@@ -11,9 +11,25 @@ from app.deps.db import get_db
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.inquiries import InquiryDetailResponse, InquiryListResponse
 from app.services.admin_inquiries import get_inquiry_detail, list_inquiries
+from app.schemas.inquiries import ReadRequest, ReadResponse
+from app.services.inquiry_activity import record_read
 
 router = APIRouter(prefix="/admin/inquiries", tags=["admin-inquiries"], dependencies=[Depends(require_roles(UserRole.AGENT, UserRole.ADMIN))])
 ERRORS = ("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "FORBIDDEN", "TENANT_REQUIRED", "INVALID_CURSOR")
+
+
+@router.post(
+    "/{inquiry_id}/read", response_model=ReadResponse,
+    summary="담당자 읽음 위치 기록",
+    description="같은 기업 agent/admin이 읽은 마지막 메시지 ID를 보냅니다. 담당자별이 아닌 문의별 공통 위치이며 중복·과거·동시 요청으로 뒤로 이동하지 않습니다. Idempotency-Key는 필요 없습니다. 고객 채팅 응답의 agent_last_read_message_id로 전달됩니다. 상태·revision·AI 분석은 변경하지 않습니다.",
+    responses=documented_errors("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "FORBIDDEN", "TENANT_REQUIRED", "INQUIRY_NOT_FOUND", "MESSAGE_NOT_FOUND", bearer_auth=True),
+)
+async def read(
+    inquiry_id: InquiryId, payload: ReadRequest,
+    user: Annotated[AuthenticatedUser, Depends(get_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> ReadResponse:
+    return await record_read(session, user=user, inquiry_id=inquiry_id, payload=payload)
 
 
 @router.get(
