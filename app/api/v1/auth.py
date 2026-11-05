@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import APIError
+from app.deps.auth import get_user
 from app.deps.db import get_db
-from app.schemas.auth import LoginRequest, RefreshRequest, SignupRequest, SignupResponse, TokenResponse
+from app.schemas.auth import AuthenticatedUser, LoginRequest, RefreshRequest, SignupRequest, SignupResponse, TokenResponse
 from app.services.auth import (
     EmailAlreadyExistsError, InvalidCredentialsError, InvalidRefreshTokenError,
     login, refresh_tokens, signup,
@@ -66,3 +67,13 @@ async def refresh_user_tokens(
     except InvalidRefreshTokenError:
         raise APIError(401, "INVALID_REFRESH_TOKEN", "유효한 갱신 토큰이 필요합니다.") from None
     return TokenResponse.model_validate(pair)
+
+
+@router.get(
+    "/me", response_model=AuthenticatedUser,
+    responses={401: {"description": "인증 실패"}, "4XX": {"description": "공통 오류 응답"}},
+)
+async def get_my_info(
+    user: Annotated[AuthenticatedUser, Depends(get_user)],
+) -> AuthenticatedUser:
+    return user

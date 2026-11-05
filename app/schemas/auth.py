@@ -57,3 +57,4 @@ class AuthenticatedUser(BaseModel):
     user_id: int
     email: EmailStr
     role: UserRole
+    tenant_id: str | None = None
