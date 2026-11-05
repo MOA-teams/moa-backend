@@ -176,7 +176,7 @@ def retire_source(source, tenant):
     }
 
 
-async def invalidate_documents(session, integration, changed_paths, bindings):
+async def invalidate_documents(session, integration, changed_paths, bindings, push_id=None):
     affected = {
         b["doc_id"]
         for b in bindings
@@ -200,6 +200,9 @@ async def invalidate_documents(session, integration, changed_paths, bindings):
             )
         )
         if version.review_required:
+            if push_id:
+                from app.services.review_discovery import capture_document
+                await capture_document(session, document, version, source="push", cause=f"push:{push_id}", push_id=push_id)
             continue
         version.review_required, version.searchable = True, False
         version.source_revision += 1
@@ -212,6 +215,9 @@ async def invalidate_documents(session, integration, changed_paths, bindings):
                 barrier_confirmed=False,
             )
         )
+        from app.services.review_discovery import capture_document
+        await capture_document(session, document, version, source="push" if push_id else "doc_version",
+                               cause=f"push:{push_id}" if push_id else None, push_id=push_id)
 
 
 async def prepare_snapshot(session, integration, job, sha, manifest, report):
@@ -262,8 +268,10 @@ async def prepare_snapshot(session, integration, job, sha, manifest, report):
             source.searchable = False
             changed.add(source.path)
     if sources:
+        from app.db.models import PushEvent
+        push_id = await session.scalar(select(PushEvent.event_id).where(PushEvent.job_id == job.job_id))
         await invalidate_documents(
-            session, integration, changed, integration.pending_bindings
+            session, integration, changed, integration.pending_bindings, push_id
         )
     job.manifest, job.target_sha, job.phase = manifest, sha, "sync"
     job.report = report

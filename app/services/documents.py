@@ -143,6 +143,8 @@ async def create_document(session, *, user, payload, key, rag):
                                         indexing_status=version.indexing_status, uploaded_at=version.created_at)
             record.response = response.model_dump(mode="json")
             job_id = job.job_id
+            from app.services.review_discovery import capture_document
+            await capture_document(session, document, version)
         # 원본/멱등 응답/차단 의도가 함께 보존된 이후에만 외부 AI를 호출한다.
         await session.commit()
     except Exception:
@@ -190,6 +192,8 @@ async def change_status(session, *, user, doc_id, version_number, payload, rag):
                               phase="barrier", barrier=barrier, barrier_confirmed=False)
             session.add(job)
             await session.flush()
+            from app.services.review_discovery import capture_document
+            await capture_document(session, document, version)
         await session.commit()
         if job is not None:
             await ensure_accepted(session, job.job_id, rag)
