@@ -71,6 +71,8 @@ def upgrade():
             RETURN NEW;
         END;
         $$ LANGUAGE plpgsql;
+    """)
+    op.execute("""
         CREATE TRIGGER document_knowledge_revision
         AFTER INSERT OR UPDATE ON document_versions
         FOR EACH ROW EXECUTE FUNCTION bump_document_knowledge_revision();
