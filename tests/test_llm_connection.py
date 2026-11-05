@@ -123,7 +123,8 @@ async def test_api_lifespan_starts_and_cancels_enabled_worker(monkeypatch):
         pass
 
     monkeypatch.setattr(
-        module, "get_settings", lambda: SimpleNamespace(ai_pipeline_worker_enabled=True)
+        module, "get_settings",
+        lambda: SimpleNamespace(ai_pipeline_worker_enabled=True, groups_worker_enabled=False),
     )
     monkeypatch.setattr(module, "run_forever", worker)
     monkeypatch.setattr(module, "engine", SimpleNamespace(dispose=dispose))

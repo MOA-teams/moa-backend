@@ -13,6 +13,7 @@ async def cors_client(anyio_backend):
 @pytest.mark.parametrize("origin", [
     "http://localhost:5173",
     "http://localhost:3000",
+    "http://localhost:3001",
     "https://moa-client.vercel.app",
     "https://moa-admin-teal.vercel.app",
 ])
@@ -51,6 +52,7 @@ async def test_cors_headers_preserve_success_and_handled_errors(cors_client, met
 @pytest.mark.parametrize("origin", [
     "http://127.0.0.1:5173",
     "http://localhost:5174",
+    "http://localhost:3002",
     "https://localhost:5173",
 ])
 async def test_unregistered_origins_have_no_cors_access(cors_client, origin):
@@ -81,7 +83,7 @@ async def test_unapproved_preflight_method_or_headers_are_rejected(cors_client, 
 
 
 @pytest.mark.parametrize("origin", [
-    "http://localhost:5173", "http://localhost:3000",
+    "http://localhost:5173", "http://localhost:3000", "http://localhost:3001",
     "https://moa-client.vercel.app", "https://moa-admin-teal.vercel.app",
 ])
 async def test_document_patch_and_idempotency_preflight(cors_client, origin):
@@ -93,3 +95,13 @@ async def test_document_patch_and_idempotency_preflight(cors_client, origin):
     assert response.headers["Access-Control-Allow-Origin"] == origin
     assert "PATCH" in response.headers["Access-Control-Allow-Methods"]
     assert "idempotency-key" in response.headers["Access-Control-Allow-Headers"].lower()
+
+
+async def test_local_admin_github_authorization_preflight(cors_client):
+    response = await cors_client.options("/api/v1/admin/integrations/github/authorization", headers={
+        "Origin": "http://localhost:3001",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "authorization,content-type,idempotency-key",
+    })
+    assert response.status_code == 200
+    assert response.headers["Access-Control-Allow-Origin"] == "http://localhost:3001"

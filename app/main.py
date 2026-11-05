@@ -49,6 +49,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://localhost:3000",
+        "http://localhost:3001",
         "https://moa-client.vercel.app",
         "https://moa-admin-teal.vercel.app",
     ],
