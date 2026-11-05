@@ -3,15 +3,17 @@
 현재 기본 공급자는 미연결이다. HTTP 구현은 설치 검증을 대신하지 않으며,
 8단계 통합 시 검증된 target을 전달해야 한다. 임의 환경 토큰을 읽지 않는다.
 """
-from dataclasses import dataclass
+import asyncio
+from dataclasses import dataclass, field
 import re
 
 import httpx
 
 
 class IssueError(Exception):
-    def __init__(self, code, *, retryable=False, uncertain=False):
+    def __init__(self, code, *, retryable=False, uncertain=False, retry_after=0):
         self.code, self.retryable, self.uncertain = code, retryable, uncertain
+        self.retry_after = retry_after
         super().__init__(code)
 
 
@@ -27,7 +29,7 @@ def get_issue_gateway():
 @dataclass(frozen=True)
 class VerifiedIssueTarget:
     repository: str
-    token: str
+    token: str = field(repr=False)
 
 
 class HttpIssueGateway:
@@ -43,13 +45,13 @@ class HttpIssueGateway:
     async def _request(self, tenant, method, *, payload=None, page=None):
         target = self.targets[tenant]
         try:
-            async with httpx.AsyncClient(base_url="https://api.github.com", timeout=10, transport=self.transport) as client:
-                response = await client.request(method, f"/repos/{target.repository}/issues",
+            async with httpx.AsyncClient(base_url="https://api.github.com", timeout=10, transport=self.transport, trust_env=False, follow_redirects=False) as client:
+                response = await asyncio.wait_for(client.request(method, f"/repos/{target.repository}/issues",
                     headers={"Authorization": f"Bearer {target.token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"},
-                    json=payload, params={"state": "all", "per_page": 100, "page": page} if page else None)
+                    json=payload, params={"state": "all", "per_page": 100, "page": page} if page else None), timeout=10)
         except (httpx.ConnectError, httpx.ConnectTimeout):
             raise IssueError("GITHUB_CONNECTION_FAILED", retryable=True) from None
-        except httpx.HTTPError:
+        except (httpx.HTTPError, TimeoutError):
             raise IssueError("GITHUB_RESPONSE_UNKNOWN", retryable=method == "GET", uncertain=method == "POST") from None
         if response.status_code == (201 if method == "POST" else 200):
             try:
@@ -57,7 +59,11 @@ class HttpIssueGateway:
             except ValueError:
                 raise IssueError("GITHUB_INVALID_RESPONSE", retryable=method == "GET", uncertain=method == "POST") from None
         if response.status_code == 429 or (response.status_code == 403 and (response.headers.get("x-ratelimit-remaining") == "0" or response.headers.get("retry-after"))):
-            raise IssueError("GITHUB_RATE_LIMITED", retryable=True)
+            try:
+                delay = max(1, min(int(response.headers.get("retry-after", "60")), 3600))
+            except ValueError:
+                delay = 60
+            raise IssueError("GITHUB_RATE_LIMITED", retryable=True, retry_after=delay)
         if response.status_code in (401, 403, 404, 422):
             raise IssueError("GITHUB_REQUEST_REJECTED")
         raise IssueError("GITHUB_UNAVAILABLE", retryable=method == "GET", uncertain=method == "POST")

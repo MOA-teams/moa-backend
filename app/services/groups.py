@@ -28,7 +28,11 @@ async def lock_groups(session, tenant):
 
 def normalize_code(value):
     value = (value or "").strip().upper().replace("_", "-")
-    return value if re.fullmatch(r"E-(?:[A-Z]+-)?[0-9]{1,10}", value) else None
+    match = re.fullmatch(r"E[\s-]*(?:([A-Z]+)[\s-]*)?([0-9]{2,3})", value)
+    if not match:
+        return None
+    area, digits = match.groups()
+    return f"E-{area}-{digits}" if area else f"E-{digits}"
 
 
 def effective_category(inquiry):
@@ -116,7 +120,7 @@ async def assign_group(session, inquiry, result=None, *, manual=False):
                     candidates.append((-item.score, candidate_group.group_id, candidate_group))
         if candidates:
             group = min(candidates, key=lambda v: v[:2])[2]
-        elif existing and existing.normalized_error_code is None and existing.category == category:
+        elif manual and existing and existing.normalized_error_code is None and existing.category == category:
             group = existing
     if not conflict and group is None:
         group = InquiryGroup(tenant_id=inquiry.tenant_id, normalized_error_code=code, category=category,

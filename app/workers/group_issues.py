@@ -124,7 +124,7 @@ async def process(factory, job_id, token, gateway):
                 if phase == "prepare" and error.code in {"GITHUB_CONNECTION_FAILED", "GITHUB_RATE_LIMITED"}:
                     job.phase = "prepare"
                 job.status, job.error_code = "대기", error.code
-                release(job, min(2**job.attempts, 30))
+                release(job, max(error.retry_after, min(2**job.attempts, 30)))
             else:
                 await failed(session, group, job, error.code, uncertain=phase == "reconcile")
             await session.commit()

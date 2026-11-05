@@ -17,9 +17,9 @@ def safe_environment(members):
     for member in members:
         os = member.env.get("os") or ""
         version = member.env.get("app_version") or ""
-        if re.fullmatch(r"(?:iOS|Android|Windows|macOS|Linux)(?: [0-9.]{1,20})?", os):
+        if re.fullmatch(r"(?:iOS|Android|Windows|macOS|Linux|Chrome|Firefox|Safari|Edge|Opera|Samsung Internet)(?:[/ ][0-9.]{1,20})?", os):
             values.add("OS: " + os)
-        if re.fullmatch(r"[0-9]{1,4}(?:\.[0-9]{1,4}){1,3}", version):
+        if version == "web" or re.fullmatch(r"[0-9]{1,4}(?:\.[0-9]{1,4}){1,3}", version):
             values.add("앱 버전: " + version)
     return sorted(values)
 
