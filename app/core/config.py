@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     ai_service_token: SecretStr | None = None
     ai_callback_token: SecretStr | None = None
     ai_pipeline_worker_enabled: bool = False
+    groups_worker_enabled: bool = False
     github_app_id: str | None = None
     github_app_slug: str | None = None
     github_client_id: str | None = None

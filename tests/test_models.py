@@ -61,7 +61,7 @@ async def test_migration_matches_models_and_supports_downgrade(db_engine, migrat
         differences = await connection.run_sync(lambda conn: compare_metadata(MigrationContext.configure(conn), Base.metadata))
         assert differences == []
         tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-        assert set(tables) == {"users", "refresh_tokens", "tenants", "inquiries", "messages", "attachments", "idempotency_records", "analysis_requests", "analysis_runs", "analysis_drafts", "classification_history", "answers", "feedback", "alembic_version", "documents", "document_versions", "document_counters", "document_jobs", "github_authorizations", "github_integrations", "github_events", "github_jobs", "github_sources", "automatic_responses"}
+        assert set(tables) == {'inquiry_groups', 'github_integrations', 'messages', 'group_membership_history', 'surge_episodes', 'github_jobs', 'documents', 'alembic_version', 'document_jobs', 'github_sources', 'document_counters', 'tenants', 'github_events', 'inquiry_summary_jobs', 'automatic_responses', 'alerts', 'feedback', 'inquiries', 'attachments', 'issue_jobs', 'idempotency_records', 'github_authorizations', 'document_versions', 'analysis_drafts', 'users', 'refresh_tokens', 'alert_reads', 'analysis_requests', 'analysis_runs', 'answers', 'classification_history'}
         columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
         identity = next(column for column in columns if column["name"] == "user_id")
         assert identity["identity"]["start"] == 1

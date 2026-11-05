@@ -93,9 +93,9 @@ class RagClient:
             raise RagError("AI_BLOCK_NOT_CONFIRMED")
         return result
 
-    async def view(self, tenant: str, source_id: str, version: int) -> SourceView:
+    async def view(self, tenant: str, source_id: str, version: int, *, source_type="문서") -> SourceView:
         result = await self.request("GET", f"/internal/v1/rag/sources/{quote(source_id, safe='')}/versions/{version}",
-                                    tenant, SourceView, expected=200, params={"source_type": "문서"})
+                                    tenant, SourceView, expected=200, params={"source_type": source_type})
         if (result.source_id, result.version) != (source_id, version):
             raise RagError("AI_INVALID_RESPONSE")
         return result

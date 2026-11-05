@@ -20,7 +20,7 @@ from app.core.config import Settings
 from scripts.configure_s3 import validate_config as validate_s3
 
 REQUIRED_KEYS = ("DATABASE_URL", "JWT_SECRET_KEY", "AWS_REGION", "S3_BUCKET_NAME", "AI_BASE_URL", "AI_SERVICE_TOKEN")
-SERVICES = ("moa-backend", "moa-documents-worker", "moa-github-worker")
+SERVICES = ("moa-backend", "moa-documents-worker", "moa-github-worker", "moa-groups-worker")
 
 
 def parse_environment(content: str) -> dict[str, str]:

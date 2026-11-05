@@ -64,7 +64,7 @@ fi
 sudo systemctl restart "$SERVICE"
 # 설치되어 실행 중인 worker도 동일한 설정으로 재시작한다. 미설치 worker를 새로 시작하지 않는다.
 RESTARTED_WORKERS=""
-for worker in moa-documents-worker moa-github-worker; do
+for worker in moa-documents-worker moa-github-worker moa-groups-worker; do
   if sudo systemctl is-active --quiet "$worker"; then
     sudo systemctl restart "$worker"
     RESTARTED_WORKERS="$RESTARTED_WORKERS $worker"

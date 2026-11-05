@@ -10,6 +10,7 @@ from app.db.models import Inquiry, Message, User
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.inquiries import InquiryDetailResponse, InquiryListResponse, InquirySummary
 from app.services.analysis import detail_analysis
+from app.services.groups import group_public_id
 from app.services.attachments import require_tenant
 from app.services.inquiries import inquiry_not_found, message_page
 
@@ -43,7 +44,7 @@ async def list_inquiries(
     if has_more:
         last = rows[-1]
         next_cursor = encode_cursor(scope, {"created_at": last.created_at.isoformat(), "id": last.inquiry_id})
-    return InquiryListResponse(items=[InquirySummary.model_validate(row) for row in rows], next_cursor=next_cursor, has_more=has_more)
+    return InquiryListResponse(items=[InquirySummary.model_validate(row).model_copy(update={"group_id": await group_public_id(session, row)}) for row in rows], next_cursor=next_cursor, has_more=has_more)
 
 
 async def get_inquiry_detail(
@@ -61,6 +62,7 @@ async def get_inquiry_detail(
     from app.db.models import Tenant
     from app.services.answers import answer_audits, feedback_state
     return InquiryDetailResponse(
+        group_id=await group_public_id(session, inquiry),
         backend_knowledge_revision=await session.scalar(select(Tenant.knowledge_revision).where(Tenant.tenant_id == tenant_id)),
         answers=await answer_audits(session, inquiry, messages),
         **await feedback_state(session, inquiry),

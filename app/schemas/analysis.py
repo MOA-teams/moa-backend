@@ -208,7 +208,7 @@ class ApplyResponse(Contract):
     inquiry_id: InquiryID
     status: str
     draft_id: str | None = None
-    group_id: None = None
+    group_id: str | None = Field(default=None, pattern=r"^G-[0-9]{3}$")
     delivery_action: Literal["담당자 검토", "없음", "추가 질문 전송", "자동 답변 전송"]
 
 

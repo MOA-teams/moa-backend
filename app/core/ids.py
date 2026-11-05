@@ -5,6 +5,8 @@ from sqlalchemy.exc import DontWrapMixin
 from app.core.errors import APIError
 
 ID_SPECS = {
+    "group": ("G-", 3, 1),
+    "alert": ("ALERT-", 6, 1),
     "customer": ("U-", 4, 2001),
     "agent": ("agent_", 2, 1),
     "admin": ("admin_", 2, 1),
