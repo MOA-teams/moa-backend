@@ -34,7 +34,9 @@ AWS 자격 증명이나 S3 key를 프론트 요청으로 받지 않는다. 비�
 - 백엔드 HTTPS·인증서·리버스 프록시를 구성하고 프록시 본문 제한을 12MiB로 설정한다. 파일 제한 10MiB와 multipart 부가 용량을 구분한다.
 - 운영 프로세스에 AWS_REGION, S3_BUCKET_NAME, S3_PRESIGNED_URL_EXPIRE_SECONDS를 주입한다.
 - 배포 시 신규 코드·의존성 준비 후 Alembic upgrade head를 실행하고 성공한 경우에만 서버를 재시작한다.
-- 현재 scripts/deploy.sh에는 Alembic 실행이 없으므로 인프라 담당자가 배포 순서에 반영해야 한다. 기존 업무 DB에는 애플리케이션이 자동으로 테이블을 만들지 않는다.
+- main 반영 시 CI 성공 후 배포 스크립트가 Alembic을 항상 실행한다. 기본 /etc/systemd/system/moa-backend.service.d/db.conf가 있으면 기존 형식의 DATABASE_URL·JWT_SECRET_KEY를 읽고, 없으면 실행 환경 또는 프로젝트 .env를 사용한다. 파일이 없다는 이유로 마이그레이션을 건너뛰지 않는다. 설정 누락·DB 접속·마이그레이션 실패 시 서버를 재시작하지 않고 배포를 실패 처리한다.
+- 스키마 변경은 커밋된 Alembic revision을 upgrade head로 자동 적용한다. 같은 revision은 재배포 시 다시 적용하지 않는다. 새 모델 변경에는 migration 파일도 함께 커밋해야 한다.
+- 배포 기본 경로는 ~/moa-backend이며 필요한 경우 MOA_APP_DIR로 변경할 수 있다. 기존 형식 systemd drop-in 경로는 MOA_SERVICE_ENV_FILE로 변경할 수 있다. 두 값은 배포 셸 환경변수이며 앱의 .env 설정과 구분한다.
 - 문의에 연결된 첨부가 지워지지 않도록 버킷 전체 만료 Lifecycle을 설정하지 않는다. 보관 기간·임시 첨부 정리 정책은 후속 합의한다.
 
 ## 인프라 담당자가 전달할 정보
