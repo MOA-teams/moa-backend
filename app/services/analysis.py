@@ -14,6 +14,7 @@ from app.db.models import (
     AnalysisRun,
     AnalysisDraft,
     ClassificationHistory,
+    AutomaticResponse,
 )
 from app.schemas.analysis import (
     AnalysisAccepted,
@@ -23,6 +24,9 @@ from app.schemas.analysis import (
     PipelineResult,
 )
 from app.services.attachments import require_tenant
+from app.services.alerts import notify
+from app.services.groups import assign_group, group_public_id
+from app.services.automatic_responses import capture_knowledge, handle_automatic_response, response_view
 
 
 def utcnow():
@@ -110,6 +114,8 @@ async def enqueue_analysis(session, inquiry, *, review_only=False):
     by_message = {}
     for mid, aid in files:
         by_message.setdefault(mid, []).append(aid)
+    from app.db.models import Answer
+    answer_ids = dict((await session.execute(select(Answer.message_id, Answer.public_id).where(Answer.inquiry_id == inquiry.inquiry_id))).all())
     snapshot = {
         "tenant_id": inquiry.tenant_id,
         "inquiry_id": inquiry.public_id,
@@ -123,17 +129,22 @@ async def enqueue_analysis(session, inquiry, *, review_only=False):
                 "text": m.text,
                 "sent_at": m.sent_at.isoformat(),
                 "attachments": by_message.get(m.message_id, []),
+                **({"answer_id": answer_ids[m.message_id]} if m.message_id in answer_ids else {}),
             }
             for m in messages
         ],
         "env": inquiry.env,
         "review_only": review_only,
     }
+    from app.services.knowledge import lock_knowledge
+    knowledge = await lock_knowledge(session, inquiry.tenant_id)
     request = AnalysisRequest(
+        backend_knowledge_revision=knowledge.knowledge_revision,
         inquiry_id=inquiry.inquiry_id,
         inquiry_revision=inquiry.revision,
         based_on_message_id=customer.message_id,
         snapshot=snapshot,
+        knowledge_snapshot=await capture_knowledge(session, inquiry.tenant_id),
         review_only=review_only,
     )
     if len(messages) > 200:
@@ -144,6 +155,8 @@ async def enqueue_analysis(session, inquiry, *, review_only=False):
         )
     session.add(request)
     await session.flush()
+    if request.phase == "failed":
+        await notify(session, tenant=inquiry.tenant_id, cause=f"analysis:{request.request_id}", kind="분석 실패", inquiry_id=inquiry.public_id, code=request.error_code)
     inquiry.latest_analysis_request_id = request.request_id
     inquiry.processing_stage = "검토 대기" if request.phase == "failed" else "대기"
     return request
@@ -194,6 +207,8 @@ async def request_analysis(session, *, user, inquiry_id, payload, key):
 async def classify(session, *, user, inquiry_id, payload):
     try:
         inquiry = await staff_inquiry(session, user, inquiry_id)
+        if inquiry.status == InquiryStatus.CLOSED:
+            raise APIError(409, "INQUIRY_CLOSED", "종료된 문의는 변경할 수 없습니다.")
         if inquiry.revision != payload.expected_revision:
             raise APIError(
                 409, "STALE_INQUIRY_REVISION", "최신 문의를 다시 조회해 주세요."
@@ -219,6 +234,8 @@ async def classify(session, *, user, inquiry_id, payload):
                 reason=payload.reason,
             )
         )
+        if inquiry.group_pk is not None:
+            await assign_group(session, inquiry, manual=True)
         response = ClassificationResponse(
             inquiry_id=inquiry.public_id,
             revision=inquiry.revision,
@@ -265,6 +282,8 @@ async def evidence_review(session, inquiry, result):
     from app.db.models import Document, DocumentVersion
     from app.core.enums import DocStatus
 
+    from app.services.knowledge import lock_knowledge
+    await lock_knowledge(session, inquiry.tenant_id)
     reasons = []
     references = {(e.doc_id, e.version) for e in result.draft.evidence.docs}
     references.update(
@@ -277,7 +296,7 @@ async def evidence_review(session, inquiry, result):
                 Document.tenant_id == inquiry.tenant_id,
                 Document.ai_source_id == external,
             )
-            .with_for_update()
+            .with_for_update(read=True)
         )
         source = (
             None
@@ -353,6 +372,7 @@ async def apply_result(session, result, *, tenant, lease_token=None):
             or customer.message_id != request.based_on_message_id
         )
         draft = None
+        automatic = None
         if not stale:
             if (
                 result.run_status == RunStatus.COMPLETED
@@ -371,7 +391,8 @@ async def apply_result(session, result, *, tenant, lease_token=None):
                 )
                 session.add(draft)
                 await session.flush()
-            inquiry.status = InquiryStatus.IN_REVIEW
+            if inquiry.status not in (InquiryStatus.ANSWERED, InquiryStatus.NEEDS_INFO):
+                inquiry.status = InquiryStatus.IN_REVIEW
             inquiry.processing_stage = "검토 대기"
             request.run_status = result.run_status
             request.current_stage = result.current_stage
@@ -379,6 +400,21 @@ async def apply_result(session, result, *, tenant, lease_token=None):
             request.error_code = "AI_PIPELINE_FAILED" if result.error else None
             request.phase = "done"
             request.lease_token = request.lease_until = None
+            # 공통 답변 저장이 원본 검수 결과를 함께 보존한다. 최종 hash와 commit은 아래에서 확정한다.
+            run.result = raw
+            automatic = await handle_automatic_response(session, inquiry, request, run, result, draft)
+            if result.run_status == RunStatus.COMPLETED:
+                await assign_group(session, inquiry, result)
+            else:
+                await notify(session, tenant=inquiry.tenant_id, cause=f"analysis:{request.request_id}", kind="분석 실패",
+                             inquiry_id=inquiry.public_id, run_id=run.run_id, code="AI_PIPELINE_FAILED")
+            from app.core.enums import CheckStatus
+            normal_reasons = {"REVIEW_ONLY", "AUTO_RESPONSE_DISABLED", "AUTO_QUESTION_DISABLED", "AUTO_ANSWER_DISABLED", "ANALYSIS_FAILED"}
+            unsafe = bool(set(automatic.review_reasons) - normal_reasons)
+            verification_failed = result.verification and (result.verification.status != CheckStatus.PASS or any(v != CheckStatus.PASS for v in result.verification.checks.values()))
+            if verification_failed or (draft and draft.review_reasons) or unsafe:
+                await notify(session, tenant=inquiry.tenant_id, cause=f"verification:{run.run_id}", kind="검증 확인 필요",
+                             inquiry_id=inquiry.public_id, run_id=run.run_id, code="REVIEW_REQUIRED")
         if stale and lease_token is not None and request.run_id == run.run_id:
             request.phase = "superseded"
             request.lease_token = request.lease_until = None
@@ -388,8 +424,9 @@ async def apply_result(session, result, *, tenant, lease_token=None):
             apply_status="ignored_stale" if stale else "applied",
             inquiry_id=inquiry.public_id,
             status=inquiry.status.value,
+            group_id=await group_public_id(session, inquiry),
             draft_id=draft.public_id if draft else None,
-            delivery_action="없음" if stale else "담당자 검토",
+            delivery_action="없음" if stale else automatic.action,
         )
         run.response = response.model_dump(mode="json")
         await session.commit()
@@ -408,8 +445,15 @@ async def detail_analysis(session, inquiry):
     if request is None:
         return {}
     run = await session.get(AnalysisRun, request.run_id) if request.run_id else None
+    automatic = await session.get(AutomaticResponse, request.run_id) if request.run_id else None
+    delivered_current = (
+        automatic is not None and automatic.message_id is not None
+        and automatic.delivered_revision == inquiry.revision
+        and inquiry.latest_analysis_request_id == request.request_id
+        and inquiry.status != InquiryStatus.CLOSED
+    )
     usable = (
-        current_request(inquiry, request)
+        (current_request(inquiry, request) or delivered_current)
         and run is not None
         and run.result is not None
         and run.response["apply_status"] == "applied"
@@ -432,6 +476,7 @@ async def detail_analysis(session, inquiry):
             review_reasons=draft.review_reasons,
         )
     return {
+        "automatic_response": await response_view(session, automatic),
         "analysis_request_id": request.request_id,
         "latest_run_id": request.run_id,
         "run_status": request.run_status,

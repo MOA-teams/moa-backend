@@ -5,12 +5,15 @@ from sqlalchemy.exc import DontWrapMixin
 from app.core.errors import APIError
 
 ID_SPECS = {
+    "group": ("G-", 3, 1),
+    "alert": ("ALERT-", 6, 1),
     "customer": ("U-", 4, 2001),
     "agent": ("agent_", 2, 1),
     "admin": ("admin_", 2, 1),
     "inquiry": ("Q-", 4, 1001),
     "message": ("MSG-", 6, 1),
     "attachment": ("ATT-", 4, 1),
+    "answer": ("A-", 4, 1001),
     "draft": ("DRAFT-", 6, 1),
 }
 

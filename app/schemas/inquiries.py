@@ -1,3 +1,5 @@
+from app.schemas.analysis import AutomaticResponseView
+from app.schemas.answers import AnswerAudit, FeedbackResponse, ResolutionStatus
 from app.schemas.analysis import Analysis, SimilarInquiries, DraftView, Verification
 from app.core.enums import RunStatus, DraftResult
 from datetime import datetime
@@ -65,6 +67,7 @@ class MessageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     message_id: str = Field(validation_alias=AliasChoices("public_id", "message_id"), description="외부 문자열 ID", examples=["MSG-000001"])
+    answer_id: str | None = None
     sender: MessageSender = Field(description="실제 발신 구분. 고정 접수 안내도 ai_auto이며 LLM 생성이라는 뜻은 아닙니다.")
     message_type: MessageType = Field(description="메시지 용도")
     text: str = Field(description="고객에게 표시할 메시지 본문")
@@ -86,6 +89,11 @@ class MessageCreateResponse(BaseModel):
 
 
 class InquiryChatResponse(BaseModel):
+    closed_at: datetime | None = None
+    resolution_status: ResolutionStatus = "미확인"
+    feedback_requested: bool = False
+    feedback_submitted: bool = False
+    feedback: FeedbackResponse | None = None
     inquiry_id: str = Field(validation_alias=AliasChoices("public_id", "inquiry_id"), description="외부 문자열 ID", examples=["Q-1001"])
     status: InquiryStatus
     agent_last_read_message_id: str | None = Field(default=None, description="담당자들이 읽은 가장 뒤의 메시지 ID. 읽음 기록이 없으면 null")
@@ -105,7 +113,7 @@ class InquirySummary(BaseModel):
     status: InquiryStatus
     created_at: datetime
     processing_stage: str | None = None
-    group_id: None = Field(default=None, description="9단계 그룹 연동 전 null")
+    group_id: str | None = Field(default=None, description="확정된 그룹 ID. 미분석·충돌 보류 시 null", pattern=r"^G-[0-9]{3}$")
 
 
 class InquiryListResponse(BaseModel):
@@ -123,6 +131,9 @@ class CustomerPresence(BaseModel):
 class InquiryDetailResponse(InquiryChatResponse):
     customer_presence: CustomerPresence
     customer_last_read_message_id: str | None = None
+    automatic_response: AutomaticResponseView | None = None
+    backend_knowledge_revision: int
+    answers: list[AnswerAudit] = Field(default_factory=list)
     tenant_id: str
     customer_id: str
     source_customer_id: str | None = Field(default=None, description="외부에서 전달받은 참고용 고객 ID. 인증된 MOA customer_id와 별개이며 검증된 신원 정보가 아닙니다.")
@@ -145,7 +156,7 @@ class InquiryDetailResponse(InquiryChatResponse):
     similar_inquiries: SimilarInquiries | None = None
     knowledge_revision: int | None = None
     draft_result: DraftResult | None = None
-    group_id: None = None
+    group_id: str | None = None
     draft: DraftView | None = None
     verification: Verification | None = None
 

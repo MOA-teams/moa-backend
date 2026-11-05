@@ -30,6 +30,7 @@ RunID = Annotated[
 
 
 class SnapshotMessage(Contract):
+    answer_id: str | None = None
     message_id: MessageID
     sender: MessageSender
     text: str = Field(min_length=1, max_length=50000)
@@ -207,8 +208,8 @@ class ApplyResponse(Contract):
     inquiry_id: InquiryID
     status: str
     draft_id: str | None = None
-    group_id: None = None
-    delivery_action: Literal["담당자 검토", "없음"]
+    group_id: str | None = Field(default=None, pattern=r"^G-[0-9]{3}$")
+    delivery_action: Literal["담당자 검토", "없음", "추가 질문 전송", "자동 답변 전송"]
 
 
 class DraftView(Draft):
@@ -216,3 +217,14 @@ class DraftView(Draft):
     revision: int
     draft_result: DraftResult
     review_reasons: list[str] = Field(default_factory=list)
+
+
+class AutomaticResponseView(Contract):
+    answer_id: str | None = None
+    run_id: RunID
+    delivery_action: Literal["담당자 검토", "추가 질문 전송", "자동 답변 전송"]
+    message_id: MessageID | None
+    review_reasons: list[str]
+    requires_review: bool
+    delivery_mode: Literal["자동"] | None
+    agent_id: None = None

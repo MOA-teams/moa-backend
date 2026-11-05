@@ -330,7 +330,7 @@ multipart/form-data의 file 바이너리 필드와 purpose 필드를 사용한�
 
 담당: **백엔드**
 
-상담 종료 후 평가. rating/resolved/comment 중 하나 이상. 별점 없어도 해결 여부 기록. 무응답은 미확인.
+상담 종료 후 소유 고객의 최초 평가. Idempotency-Key 필수. rating(정수 1~5)/resolved(boolean)/comment(1~10000자, 공백만 입력 불가) 중 하나 이상. resolved=false도 유효하며 별점은 해결 여부를 대신하지 않는다. 종료 당시 마지막 답변에 연결하고 응답에 answer_id/resolved/comment도 포함한다. 동일 키·본문 재시도 외 재제출은 409다. true는 해결 확인, false는 미해결, 무응답은 미확인이다. 미해결 평가로 상담을 재개하지 않는다.
 
 요청 JSON:
 
@@ -357,7 +357,9 @@ multipart/form-data의 file 바이너리 필드와 purpose 필드를 사용한�
 
 본인 문의를 가진 customer 전용. `Authorization: Bearer <access_token>`과 JSON 본문이 필요하고 `Idempotency-Key`는 필요 없다.
 
-배포 전 `alembic upgrade head`로 `0010_inquiry_activity`를 적용한다. 기존 문의는 읽음 기록 없음·`상담 중`으로 시작한다. `0009_analysis`로 downgrade하면 이번 기능의 이탈 이력과 읽음 위치만 제거하고 기존 상담·메시지·AI 분석은 보존한다.
+배포 전 `alembic upgrade head`로 `0010_inquiry_activity`와 병합 revision `0014_inquiry_activity_merge`를 적용한다. 기존 문의는 읽음 기록 없음·`상담 중`으로 시작한다. 기존 main(`0013_groups_github`)과 이탈·읽음(`0010_inquiry_activity`) 어느 쪽에서 시작해도 기존 데이터를 보존하며 하나의 head로 합쳐진다.
+
+이탈·읽음 기능만 롤백할 때는 `alembic downgrade 0010_inquiry_activity@0009_analysis`로 제거할 분기를 명시한다. 이탈 이력과 읽음 위치만 제거하고 기존 main의 답변·그룹·GitHub 데이터와 상담·메시지·AI 분석은 유지한다. 병합 revision만 내리면 양쪽 분기가 남으며, 분기 지정 없이 `0009_analysis`로 내리면 main의 후속 기능도 함께 제거되므로 구분한다.
 
 ```json
 { "type": "left" }
@@ -586,6 +588,8 @@ C07·C08 공통 오류: 입력 오류 400, 인증 누락·만료 401, 역할 불
 
 ### A05 · POST /admin/inquiries/{inquiry_id}/answers
 
+6단계 구현 계약: Idempotency-Key 필수. 상세 조회의 `backend_knowledge_revision`을 요청의 `expected_backend_knowledge_revision`으로 보낸다. 초안 ID/revision은 함께 지정하거나 직접 작성 시 둘 다 null이다. 201에는 변경 후 `inquiry_revision`이 포함된다. 원본 AI 검수와 담당자 승인은 분리 보존하며 최종 전달은 채팅 메시지 DB 커밋으로 확정한다. 검수 실패도 담당자가 승인할 수 있지만 최신성·권한·문서 검사는 생략하지 않는다. 코드 근거는 GitHub 검증 전까지 거절한다. [상세 계약·오류 처리](AnswerOperations.md).
+
 담당: **백엔드**
 
 최종 수정·담당자 승인·발송. 최신 문의/고객 메시지/초안/지식 revision 검증. 근거는 본 테넌트에서 조회된 자료만 허용. 수동 작성 시 draft_id/draft_revision=null. 자동 발송은 이 담당자 API를 가짜 계정으로 호출하지 않고 동일한 내부 저장·발송 로직을 사용.
@@ -598,6 +602,7 @@ C07·C08 공통 오류: 입력 오류 400, 인증 누락·만료 401, 역할 불
   "draft_revision": 1,
   "expected_inquiry_revision": 3,
   "expected_last_customer_message_id": "MSG-000003",
+  "expected_backend_knowledge_revision": 7,
   "answer_text": "담당자가 확인한 안내입니다.",
   "evidence": {
     "docs": [
@@ -617,6 +622,7 @@ C07·C08 공통 오류: 입력 오류 400, 인증 누락·만료 401, 역할 불
 {
   "answer_id": "A-1001",
   "message_id": "MSG-000005",
+  "inquiry_revision": 4,
   "inquiry_id": "Q-1001",
   "status": "답변 완료",
   "delivery_mode": "담당자",
@@ -629,7 +635,7 @@ C07·C08 공통 오류: 입력 오류 400, 인증 누락·만료 401, 역할 불
 
 담당: **백엔드**
 
-상담 종료·평가 요청. 종료만으로 해결 성공 처리하지 않는다.
+상담 종료·평가 요청. Idempotency-Key 필수. 최종 답변이 있는 문의만 종료하며 revision을 증가시킨다. 요청의 resolution_status는 미확인만 허용한다. 응답은 inquiry_revision과 closed_at도 포함한다. 종료만으로 해결 성공 처리하지 않는다. 같은 키 재시도는 기존 결과를 반환하고 재개 API는 제공하지 않는다.
 
 요청 JSON:
 
@@ -780,6 +786,8 @@ LLM 추천을 반영해 저장한 그룹 목록. 급증 건수는 현재 서버 
 
 ## 8. GitHub API · 백엔드 담당
 
+8단계 구현 계약: [GitHub 연결·프론트·운영 명세](GitHubOperations.md). `/api/v1` 접두어를 사용한다. 인증 시작/완료·저장소 선택 API가 추가되며 H01의 `authorization_id`와 `Idempotency-Key`가 필수다(레벨 0은 인증 생략).
+
 ### H01 · POST /admin/integrations/github
 
 담당: **백엔드**
@@ -790,8 +798,9 @@ admin 전용. GitHub App 설치 소유권 검증. 허용 경로/제외 패턴 �
 
 ```json
 {
+  "authorization_id": "일회용 설치 인증 결과",
   "installation_id": 12345,
-  "repository": "syncnote-demo/syncnote-app",
+  "repository": "MOA-demo/syncnote-app",
   "watch_branch": "main",
   "security_level": 2,
   "include_paths": [
@@ -821,7 +830,7 @@ admin 전용. GitHub App 설치 소유권 검증. 허용 경로/제외 패턴 �
 
 담당: **백엔드**
 
-연동/동기화 상태 조회. 현재 GitHub 자료 분석은 외부 LLM을 사용할 수 있으며 로컬 모델 처리는 향후 배포 구상이다. 현재 구현을 로컬 처리로 표시하지 않는다.
+연동/동기화 상태 조회. `include_paths`, `exclude_patterns`, `document_bindings`, `error_code`, 마지막 완료 스냅샷의 `report`도 제공한다. 연결 정책·레벨 0/1/2 및 오류 처리는 GitHubOperations.md를 따른다. 현재 GitHub 자료 분석은 외부 LLM을 사용할 수 있으며 로컬 모델 처리는 향후 배포 구상이다. 현재 구현을 로컬 처리로 표시하지 않는다.
 
 요청 본문 없음.
 
@@ -830,7 +839,7 @@ admin 전용. GitHub App 설치 소유권 검증. 허용 경로/제외 패턴 �
 ```json
 {
   "integration_id": "github_syncnote",
-  "repository": "syncnote-demo/syncnote-app",
+  "repository": "MOA-demo/syncnote-app",
   "watch_branch": "main",
   "security_level": 2,
   "status": "연결 완료",
@@ -854,7 +863,8 @@ GitHub 원본 bytes의 X-Hub-Signature-256 검증, X-GitHub-Delivery로 중복 �
   "before": "a1b2c3d",
   "after": "b2c3d4e",
   "repository": {
-    "full_name": "syncnote-demo/syncnote-app"
+    "id": 67890,
+    "full_name": "MOA-demo/syncnote-app"
   },
   "installation": {
     "id": 12345

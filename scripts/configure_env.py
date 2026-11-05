@@ -1,5 +1,6 @@
 """ENV_FILE 검증 → 같은 환경으로 migration → 비공개 환경파일 적용. 값은 출력하지 않는다."""
 import io
+import json
 import os
 from pathlib import Path
 import re
@@ -19,7 +20,7 @@ from app.core.config import Settings
 from scripts.configure_s3 import validate_config as validate_s3
 
 REQUIRED_KEYS = ("DATABASE_URL", "JWT_SECRET_KEY", "AWS_REGION", "S3_BUCKET_NAME", "AI_BASE_URL", "AI_SERVICE_TOKEN")
-SERVICES = ("moa-backend", "moa-documents-worker")
+SERVICES = ("moa-backend", "moa-documents-worker", "moa-github-worker", "moa-groups-worker")
 
 
 def parse_environment(content: str) -> dict[str, str]:
@@ -42,7 +43,14 @@ def parse_environment(content: str) -> dict[str, str]:
 
 def runtime_environment(raw: dict[str, str]) -> dict[str, str]:
     # 모든 Settings 필드를 명시해 배포 프로세스의 과거 환경변수가 검증에 섞이지 않게 한다.
-    values = {name: raw.get(name.upper(), field.default) for name, field in Settings.model_fields.items()}
+    values = {name: raw.get(name.upper(), field.get_default(call_default_factory=True)) for name, field in Settings.model_fields.items()}
+    # 배포 계약은 AI 주소·서비스 토큰을 필수로 받는다. 플래그 누락만으로 분석이
+    # 영원히 대기하지 않게 활성화하되 운영자가 명시한 false는 그대로 존중한다.
+    if "AI_PIPELINE_WORKER_ENABLED" not in raw:
+        values["ai_pipeline_worker_enabled"] = True
+    # Settings의 생성자 인자는 환경 소스와 달리 복합 JSON 문자열을 자동 해석하지 않는다.
+    if isinstance(values["auto_response_policies"], str):
+        values["auto_response_policies"] = json.loads(values["auto_response_policies"])
     settings = Settings(_env_file=None, **values)
     try:
         url = make_url(settings.database_url.get_secret_value())
@@ -56,10 +64,14 @@ def runtime_environment(raw: dict[str, str]) -> dict[str, str]:
     ai.port  # 잘못된 포트 표현도 검증한다.
     s3 = validate_s3({key: raw.get(key, "") for key in ("AWS_REGION", "S3_BUCKET_NAME", "S3_PRESIGNED_URL_EXPIRE_SECONDS")})
     result = dict(raw)
+    json_values = settings.model_dump(mode="json")
     for name in Settings.model_fields:
         value = getattr(settings, name)
         if hasattr(value, "get_secret_value"):
             value = value.get_secret_value()
+        # systemd와 마이그레이션 프로세스도 같은 JSON 설정을 읽어야 한다.
+        if isinstance(value, (dict, list)):
+            value = json.dumps(json_values[name], ensure_ascii=False, separators=(",", ":"))
         result[name.upper()] = "" if value is None else str(value)
     result.update(s3)
     return result

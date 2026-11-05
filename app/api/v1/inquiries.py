@@ -112,3 +112,16 @@ async def chat(
     cursor: Cursor = None, limit: Limit = 20,
 ) -> InquiryChatResponse:
     return await get_customer_chat(session, user=user, inquiry_id=inquiry_id, cursor=cursor, limit=limit)
+
+
+from app.schemas.answers import FeedbackRequest, FeedbackResponse
+from app.services.answers import submit_feedback
+
+
+@router.post("/{inquiry_id}/feedback", status_code=201, response_model=FeedbackResponse,
+    summary="종료된 본인 상담의 최초 평가",
+    responses=documented_errors(*COMMON_ERRORS, "INQUIRY_NOT_FOUND", "INQUIRY_NOT_CLOSED", "FEEDBACK_ALREADY_SUBMITTED", "ANSWER_REQUIRED", "IDEMPOTENCY_CONFLICT", bearer_auth=True),
+    description="Idempotency-Key 필수. rating(정수 1~5)·resolved(boolean)·comment 중 하나 이상 제출합니다. 별점은 해결 여부를 대신하지 않습니다. 평가는 종료 당시 마지막 답변에 한 번만 연결하며, 동일 키·본문 재시도만 기존 결과를 반환합니다. 미해결 평가로 상담을 재개하지 않습니다.")
+async def feedback(inquiry_id: InquiryId, payload: FeedbackRequest, key: IdempotencyKey,
+    user: Annotated[AuthenticatedUser, Depends(get_user)], session: Annotated[AsyncSession, Depends(get_db)]) -> FeedbackResponse:
+    return await submit_feedback(session, user=user, inquiry_id=inquiry_id, payload=payload, key=key)

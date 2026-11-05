@@ -10,6 +10,7 @@ from app.db.models import Inquiry, Message, User
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.inquiries import InquiryDetailResponse, InquiryListResponse, InquirySummary
 from app.services.analysis import detail_analysis
+from app.services.groups import group_public_id
 from app.services.attachments import require_tenant
 from app.services.inquiries import inquiry_not_found, message_page
 from app.services.inquiry_activity import customer_presence, latest_session_event, read_message_id
@@ -44,14 +45,14 @@ async def list_inquiries(
     if has_more:
         last = rows[-1]
         next_cursor = encode_cursor(scope, {"created_at": last.created_at.isoformat(), "id": last.inquiry_id})
-    return InquiryListResponse(items=[InquirySummary.model_validate(row) for row in rows], next_cursor=next_cursor, has_more=has_more)
+    return InquiryListResponse(items=[InquirySummary.model_validate(row).model_copy(update={"group_id": await group_public_id(session, row)}) for row in rows], next_cursor=next_cursor, has_more=has_more)
 
 
 async def get_inquiry_detail(
     session: AsyncSession, *, user: AuthenticatedUser, inquiry_id: str, cursor: str | None, limit: int,
 ) -> InquiryDetailResponse:
     tenant_id = require_tenant(user)
-    inquiry = await session.scalar(select(Inquiry).where(Inquiry.public_id == inquiry_id, Inquiry.tenant_id == tenant_id))
+    inquiry = await session.scalar(select(Inquiry).where(Inquiry.public_id == inquiry_id, Inquiry.tenant_id == tenant_id).with_for_update(read=True))
     if inquiry is None:
         raise inquiry_not_found()
     messages, next_cursor, has_more = await message_page(session, inquiry=inquiry, user=user, cursor=cursor, limit=limit)
@@ -59,7 +60,13 @@ async def get_inquiry_detail(
         Message.inquiry_id == inquiry.inquiry_id, Message.sender == MessageSender.CUSTOMER,
         Message.sequence <= inquiry.last_message_sequence,
     ).order_by(Message.sequence.desc()).limit(1))
+    from app.db.models import Tenant
+    from app.services.answers import answer_audits, feedback_state
     return InquiryDetailResponse(
+        group_id=await group_public_id(session, inquiry),
+        backend_knowledge_revision=await session.scalar(select(Tenant.knowledge_revision).where(Tenant.tenant_id == tenant_id)),
+        answers=await answer_audits(session, inquiry, messages),
+        **await feedback_state(session, inquiry),
         **{field: getattr(inquiry, field) for field in (
             "status", "tenant_id", "source_customer_id", "title", "revision", "customer_category",
             "env", "category", "urgency", "created_at", "updated_at", "processing_stage",

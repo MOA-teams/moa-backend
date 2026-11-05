@@ -34,10 +34,12 @@ class AnalysisRequest(BaseEntity):
     inquiry_id: Mapped[int] = mapped_column(
         ForeignKey("inquiries.inquiry_id", ondelete="CASCADE"), nullable=False
     )
+    backend_knowledge_revision: Mapped[int | None] = mapped_column(BigInteger)
     inquiry_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     based_on_message_id: Mapped[int] = mapped_column(
         ForeignKey("messages.message_id", ondelete="CASCADE"), nullable=False
     )
+    knowledge_snapshot: Mapped[dict | None] = mapped_column(JSONB)
     snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
     review_only: Mapped[bool] = mapped_column(Boolean, nullable=False)
     run_status: Mapped[RunStatus] = mapped_column(

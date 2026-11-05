@@ -4,6 +4,20 @@ from typing import Any
 from app.schemas.common import ErrorResponse
 
 API_DESCRIPTION = """
+## 그룹·급증·알림
+- `/admin/groups`에서 최근 5분 문의 수와 급증(8건 이상)을 조회합니다. 10분 무접수 시 장애 구간이 종료됩니다.
+- `/admin/alerts`의 읽음 상태는 담당자별입니다. PATCH `read=true`는 최초 읽음 시각을 보존합니다.
+- 그룹 상세의 episode_id로 GitHub Issue를 요청합니다. `202`는 저장 완료이며 GitHub 미연결 시 `대기/GITHUB_INTEGRATION_NOT_READY`입니다.
+- Issue 결과가 `확인 필요`이면 생성 여부가 불명확해 재생성을 차단한 상태입니다. GitHub 연결 후에는 해당 저장소에 한정된 Issues: write 설치 토큰으로 처리하며 저장소·보안 정책이 바뀌면 생성 전에 다시 확인합니다. 임의 새 키로 중복 생성하지 마세요.
+- 운영자는 별도 프로세스 `python -m app.workers.groups` 또는 `GROUPS_WORKER_ENABLED=true`로 구간 만료·요약 동기화·Issue 복구를 실행합니다.
+
+## 담당자 답변·종료·평가
+- 담당자 상세의 revision·latest_customer_message_id·backend_knowledge_revision으로 POST /admin/inquiries/{id}/answers를 호출합니다. 초안 ID/revision은 함께 지정하거나 직접 작성 시 둘 다 null입니다.
+- 최종 답변은 채팅 메시지와 함께 저장된 뒤 201입니다. 고객은 기존 폴링으로 확인합니다. AI 검수 결과와 사람의 승인은 구분됩니다.
+- 답변 후 POST /admin/inquiries/{id}/close로 종료하면 고객 조회에 feedback_requested=true가 표시됩니다.
+- 고객은 POST /inquiries/{id}/feedback에 rating/resolved/comment 중 하나 이상을 최초 한 번 제출합니다. 별점과 해결 여부는 독립적입니다.
+- 세 변경 API 모두 Idempotency-Key 필수입니다. 409이면 최신 상세를 확인하고, 503 근거 확인 실패에는 원래 키·본문으로 재시도합니다.
+
 MOA 프론트엔드 연동을 위한 인증·기업 소속·문의·채팅·S3 첨부 API입니다.
 
 ## 처음 연결하는 순서
@@ -22,7 +36,7 @@ MOA 프론트엔드 연동을 위한 인증·기업 소속·문의·채팅·S3 �
 6. 첨부 다운로드 직전에 `GET /api/v1/attachments/{id}`로 기본 300초의 다운로드 URL을 발급받습니다.
 7. agent/admin은 `/api/v1/admin/inquiries`에서 본인 기업의 목록과 상세를 조회합니다.
 
-도메인 Enum은 계약의 한글 값이며 문의·메시지·첨부 ID는 접두어를 포함한 문자열입니다. 문의 저장과 함께 AI 분석 요청을 보존합니다. 결과는 담당자 상세에서 확인하며 답변 발송·상담 종료는 후속 단계입니다.
+도메인 Enum은 계약의 한글 값이며 문의·메시지·첨부 ID는 접두어를 포함한 문자열입니다. 문의 저장과 함께 AI 분석 요청을 보존합니다. 결과는 담당자 상세에서 확인하며 담당자 답변·상담 종료·고객 평가 API로 상담을 마무리합니다.
 
 ## 지식 문서 연동 순서
 1. 같은 기업의 agent/admin이 `/api/v1/admin/documents`를 사용합니다.
@@ -50,6 +64,7 @@ MOA 프론트엔드 연동을 위한 인증·기업 소속·문의·채팅·S3 �
 """
 
 OPENAPI_TAGS = [
+    {"name": "github", "description": "관리자 GitHub App 인증·저장소 선택·보안 레벨 설정과 서명 Webhook 동기화. GitHubOperations.md 참조."},
     {"name": "documents", "description": "같은 기업 agent/admin의 문서 원본·불변 버전 관리와 RAG 인덱싱 상태 조회."},
     {"name": "auth", "description": "회원가입·로그인·토큰 갱신·내 정보 조회. 고객·담당자·관리자 모두 같은 인증 흐름을 사용합니다."},
     {"name": "tenants", "description": "기업 생성·본인 소속 연결·내 기업 조회. 사용자 한 명은 한 기업에만 소속됩니다."},
@@ -75,6 +90,17 @@ TOKEN_EXAMPLE = {"access_token": "eyJhbGciOiJIUzI1NiJ9.example.signature", "refr
 TENANT_EXAMPLE = {"tenant_id": "syncnote", "name": "싱크노트"}
 
 ERROR_DOCUMENTATION = {
+    "STALE_CUSTOMER_MESSAGE": (409, "최신 고객 메시지를 확인해 주세요.", "고객 메시지 변경"),
+    "STALE_DRAFT": (409, "초안을 다시 확인해 주세요.", "초안 또는 분석 실행 변경"),
+    "STALE_KNOWLEDGE": (409, "최신 문서를 확인하고 재분석해 주세요.", "백엔드 문서 변경번호 불일치"),
+    "STALE_EVIDENCE": (409, "근거 문서의 최신 유효 상태를 확인해 주세요.", "근거 폐기·재검토·검색 상태 변경"),
+    "EVIDENCE_NOT_RETRIEVED": (409, "초안의 문서 근거만 사용할 수 있습니다.", "초안 근거 밖의 문서"),
+    "CODE_EVIDENCE_UNVERIFIED": (409, "코드 근거 최신성을 확인할 수 없습니다.", "GitHub 연동 필요"),
+    "EVIDENCE_CHECK_UNAVAILABLE": (503, "근거 최신성을 확인하지 못했습니다.", "AI 조회 실패, 발송 없음"),
+    "ANSWER_ALREADY_SENT": (409, "이미 발송된 답변입니다.", "중복 발송 차단"),
+    "ANSWER_REQUIRED": (409, "최종 답변이 필요합니다.", "답변 없는 상담 종료·평가 차단"),
+    "INQUIRY_NOT_CLOSED": (409, "상담 종료 후 평가할 수 있습니다.", "진행 중 문의 평가"),
+    "FEEDBACK_ALREADY_SUBMITTED": (409, "이미 평가했습니다.", "최초 평가 이후 재제출"),
     "DOCUMENT_NOT_FOUND": (404, "문서 또는 버전을 찾을 수 없습니다.", "문서 없음 또는 다른 기업의 문서"),
     "DOCUMENT_ID_EXHAUSTED": (409, "이 기업의 AI 문서 ID 999개를 모두 사용했습니다.", "AI 문서 ID 한도 소진"),
     "DOCUMENT_VERSION_CONFLICT": (409, "문서 버전이 현재 상태와 충돌합니다.", "중복·건너뛴 버전 또는 이전 버전 활성화"),
@@ -114,6 +140,18 @@ ERROR_DOCUMENTATION.update({
     "PIPELINE_IDENTITY_MISMATCH": (409, "등록된 분석 요청과 일치하지 않습니다.", "문의·revision·기준 메시지 불일치"),
     "PIPELINE_RESULT_CONFLICT": (409, "이미 저장된 최종 결과와 다릅니다.", "같은 run의 다른 최종 결과"),
     "NON_TERMINAL_RESULT": (400, "완료 또는 실패 결과만 수신합니다.", "진행 중 결과를 콜백으로 전송함"),
+})
+
+
+ERROR_DOCUMENTATION.update({
+    "GITHUB_AUTHORIZATION_INVALID": (400, "GitHub 연결을 다시 시작해 주세요.", "인증 만료·재사용 또는 소유자 불일치"),
+    "GITHUB_REPOSITORY_NOT_FOUND": (404, "연결 가능한 저장소가 아닙니다.", "인증한 저장소 목록에 없음"),
+    "GITHUB_REPOSITORY_CONNECTED": (409, "이미 연결된 저장소입니다.", "다른 기업에 연결된 저장소"),
+    "GITHUB_NOT_CONFIGURED": (503, "GitHub 연결 설정을 확인해 주세요.", "GitHub App 설정 누락"),
+    "GITHUB_UNAVAILABLE": (503, "잠시 후 다시 시도해 주세요.", "GitHub 응답 실패 또는 호출 제한"),
+    "GITHUB_SIGNATURE_INVALID": (401, "Webhook 서명이 올바르지 않습니다.", "원본 bytes HMAC 검증 실패"),
+    "GITHUB_DELIVERY_CONFLICT": (409, "동일 delivery ID에 다른 본문입니다.", "이벤트 식별자 충돌"),
+    "GITHUB_SYNC_PENDING": (503, "GitHub 자료의 최신성 확인이 진행 중입니다.", "동기화 중 연결 문서 승인 차단"),
 })
 
 

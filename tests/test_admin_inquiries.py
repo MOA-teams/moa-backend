@@ -95,7 +95,7 @@ async def test_swagger_and_idempotency_cors(client):
     })
     assert response.status_code == 200
     spec = (await client.get("/openapi.json")).json()
-    assert len(spec["paths"]) == 23
+    assert len(spec["paths"]) == 36
     for path in (
         "/api/v1/inquiries/{inquiry_id}/session-events",
         "/api/v1/inquiries/{inquiry_id}/read",

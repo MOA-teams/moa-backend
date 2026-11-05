@@ -17,6 +17,7 @@ class Inquiry(BaseEntity):
     __table_args__ = (
         Index("ix_inquiries_tenant_created_id", "tenant_id", "created_at", "inquiry_id"),
         Index("ix_inquiries_customer_id", "customer_id"),
+        Index("ix_inquiries_group_pk", "group_pk"),
         CheckConstraint("revision > 0 AND last_message_sequence >= 0", name="ck_inquiries_revision_sequence"),
         CheckConstraint("customer_last_read_sequence >= 0 AND agent_last_read_sequence >= 0", name="ck_inquiries_read_sequences"),
     )
@@ -24,7 +25,15 @@ class Inquiry(BaseEntity):
     inquiry_id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.tenant_id", ondelete="RESTRICT"), nullable=False)
     customer_id: Mapped[int] = mapped_column(ForeignKey("users.user_id", ondelete="RESTRICT"), nullable=False)
+    group_pk: Mapped[int | None] = mapped_column(ForeignKey("inquiry_groups.group_id", ondelete="RESTRICT"))
+    normalized_error_code: Mapped[str | None] = mapped_column(String(100))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    is_seed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     source_customer_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_by: Mapped[int | None] = mapped_column(ForeignKey("users.user_id", ondelete="RESTRICT"))
+    feedback_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolution_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="미확인")
     latest_analysis_request_id: Mapped[str | None] = mapped_column(String(36))
     classification_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     processing_stage: Mapped[str | None] = mapped_column(String(100))
