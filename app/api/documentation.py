@@ -4,7 +4,7 @@ from typing import Any
 from app.schemas.common import ErrorResponse
 
 API_DESCRIPTION = """
-MOA 프론트엔드 연동을 위한 인증·기업 소속 API입니다.
+MOA 프론트엔드 연동을 위한 인증·기업 소속·문의·채팅·S3 첨부 API입니다.
 
 ## 처음 연결하는 순서
 1. **회원가입**: `POST /api/v1/auth/signup`. 역할은 `customer`(고객), `agent`(담당자), `admin`(관리자)입니다.
@@ -12,6 +12,17 @@ MOA 프론트엔드 연동을 위한 인증·기업 소속 API입니다.
 3. 오른쪽 위 **Authorize**에 로그인 응답의 **access_token 값만** 입력합니다. `Bearer ` 접두어는 Swagger가 붙입니다.
 4. **내 정보**: `GET /api/v1/auth/me`로 사용자 ID·이메일·역할·기업 소속을 확인합니다. 미소속이면 `tenant_id`는 `null`입니다.
 5. **기업 연결**: 미소속 관리자는 기업 생성 API를, 나머지 사용자는 기업 ID로 소속 연결 API를 호출합니다. 연결 후 기존 access token으로 내 정보를 다시 조회할 수 있습니다.
+
+## 문의·첨부 연동 순서
+1. customer 계정을 기업에 연결합니다.
+2. 첨부가 있으면 `POST /api/v1/attachments`에 multipart `file`로 업로드하고 숫자 `attachment_id`를 받습니다.
+3. `POST /api/v1/inquiries`에 첫 메시지와 첨부 ID 배열을 보냅니다. **Idempotency-Key** 헤더에 요청별 UUID를 넣으세요.
+4. `GET /api/v1/inquiries/{id}`에서 받은 `next_cursor`로 다음 이력을 읽습니다. `has_more=false`이면 3초 뒤 폴링합니다.
+5. 추가 메시지에는 새 Idempotency-Key를 사용하고, 네트워크 재시도에는 원래 키와 본문을 유지합니다.
+6. 첨부 다운로드 직전에 `GET /api/v1/attachments/{id}`로 기본 300초의 다운로드 URL을 발급받습니다.
+7. agent/admin은 `/api/v1/admin/inquiries`에서 본인 기업의 목록과 상세를 조회합니다.
+
+Enum은 영어 snake_case이며 문의·메시지·첨부 ID는 숫자입니다. AI 요청·답변·상담 종료는 아직 연결하지 않았습니다.
 
 ## 토큰 처리
 - 인증이 필요한 API는 `Authorization: Bearer <access_token>`을 사용합니다.
@@ -34,6 +45,7 @@ MOA 프론트엔드 연동을 위한 인증·기업 소속 API입니다.
 OPENAPI_TAGS = [
     {"name": "auth", "description": "회원가입·로그인·토큰 갱신·내 정보 조회. 고객·담당자·관리자 모두 같은 인증 흐름을 사용합니다."},
     {"name": "tenants", "description": "기업 생성·본인 소속 연결·내 기업 조회. 사용자 한 명은 한 기업에만 소속됩니다."},
+    {"name": "admin-inquiries", "description": "같은 기업 agent/admin 전용 목록·상세 조회. 내부 필드는 고객 채팅 응답과 분리합니다."},
     {"name": "inquiries", "description": "customer 전용 문의 접수·추가 메시지·cursor 폴링. 문의·메시지 저장에 Idempotency-Key가 필요합니다. AI 호출 없이 동작합니다."},
     {"name": "attachments", "description": "기업·업로더 권한을 확인하는 비공개 S3 첨부. 업로드 후 숫자 ID를 문의에 연결하고, 다운로드 URL은 만료 시 재발급합니다."},
     {"name": "system", "description": "서버 응답 상태 확인. 헬스체크는 DB 연결 상태를 검사하지 않습니다."},

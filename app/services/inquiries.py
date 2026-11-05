@@ -130,6 +130,7 @@ async def message_page(session: AsyncSession, *, inquiry: Inquiry, user: Authent
         raise APIError(400, "INVALID_CURSOR", "유효한 조회 cursor가 필요합니다.")
     rows = list((await session.scalars(select(Message).where(
         Message.inquiry_id == inquiry.inquiry_id, Message.sequence > after,
+        Message.sequence <= inquiry.last_message_sequence,
     ).order_by(Message.sequence).limit(limit + 1))).all())
     has_more = len(rows) > limit
     rows = rows[:limit]
