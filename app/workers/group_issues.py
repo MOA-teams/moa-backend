@@ -72,6 +72,7 @@ def release(job, delay=0):
 
 
 async def failed(session, group, job, code, *, uncertain=False):
+    logger.warning("issue_state_changed job_id=%s code=%s", job.job_id, code)
     job.status, job.error_code, job.phase = (
         "확인 필요" if uncertain else "실패",
         code,
@@ -126,6 +127,7 @@ async def process(factory, job_id, token, gateway):
                         "EPISODE_ENDED",
                     )
                     release(job)
+                    logger.info("issue_state_changed job_id=%s code=EPISODE_ENDED", job_id)
                 else:
                     job.status, job.error_code = "대기", "SURGE_POLICY_NOT_MET"
                     release(job, 5)
@@ -219,6 +221,7 @@ async def process(factory, job_id, token, gateway):
                 await session.commit()
                 return
             if error.uncertain:
+                logger.warning("issue_state_changed job_id=%s code=GITHUB_RESPONSE_UNKNOWN", job_id)
                 job.phase, job.status, job.error_code = (
                     "reconcile",
                     "처리 중",

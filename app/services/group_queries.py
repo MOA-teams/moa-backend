@@ -43,9 +43,11 @@ async def view(session, group, now, count=None):
     metadata = (job.issue_metadata or {}) if job else {}
     integration = await integration_for(session, group.tenant_id)
     candidates = metadata.get("code_candidates", [])
+    target = job.payload.get("github_target") if job else None
+    same_repository = enabled(integration) and target and target.get("repository_id") == integration.repository_id and target.get("repository") == integration.repository
     candidates = [c for c in candidates if enabled(integration) and not exclusion(
         c["path"], integration.include_paths, integration.exclude_patterns + ["labels/"],
-    )] if enabled(integration) else []
+    )] if same_repository else []
     return {
         "group_id": group.public_id,
         "category": group.category,
