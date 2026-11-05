@@ -1,7 +1,8 @@
 import hashlib
 import json
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from app.db.models import Attachment, IdempotencyRecord, Inquiry, Message
 from app.schemas.attachments import AttachmentMetadata
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.inquiries import (
+    CustomerInquiryListResponse, CustomerInquirySummary,
     InquiryChatResponse, InquiryCreateRequest, InquiryCreateResponse,
     MessageCreateRequest, MessageCreateResponse, MessageResponse,
 )
@@ -160,6 +162,39 @@ async def message_page(session: AsyncSession, *, inquiry: Inquiry, user: Authent
         "answer_id": answer_ids.get(row.message_id)}) for row in rows]
     next_cursor = encode_cursor(scope, {"after": rows[-1].sequence if rows else after})
     return messages, next_cursor, has_more
+
+
+async def list_customer_inquiries(
+    session: AsyncSession, *, user: AuthenticatedUser, cursor: str | None, limit: int,
+) -> CustomerInquiryListResponse:
+    tenant_id = require_tenant(user)
+    scope = {"type": "customer_inquiries", "tenant": tenant_id, "user": user.internal_user_id}
+    position = decode_cursor(cursor, scope)
+    statement = select(Inquiry).where(
+        Inquiry.tenant_id == tenant_id, Inquiry.customer_id == user.internal_user_id,
+    )
+    if position is not None:
+        try:
+            created_at = datetime.fromisoformat(position["created_at"])
+            inquiry_id = position["id"]
+            if created_at.utcoffset() is None or type(inquiry_id) is not int or not 1 <= inquiry_id <= 2**63 - 1:
+                raise ValueError
+        except (ValueError, TypeError, KeyError):
+            raise APIError(400, "INVALID_CURSOR", "유효한 조회 cursor가 필요합니다.") from None
+        statement = statement.where(tuple_(Inquiry.created_at, Inquiry.inquiry_id) < tuple_(created_at, inquiry_id))
+    rows = list((await session.scalars(
+        statement.order_by(Inquiry.created_at.desc(), Inquiry.inquiry_id.desc()).limit(limit + 1)
+    )).all())
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_cursor = None
+    if has_more:
+        last = rows[-1]
+        next_cursor = encode_cursor(scope, {"created_at": last.created_at.isoformat(), "id": last.inquiry_id})
+    return CustomerInquiryListResponse(
+        items=[CustomerInquirySummary.model_validate(row) for row in rows],
+        next_cursor=next_cursor, has_more=has_more,
+    )
 
 
 async def get_customer_chat(session: AsyncSession, *, user: AuthenticatedUser, inquiry_id: str, cursor: str | None, limit: int) -> InquiryChatResponse:
