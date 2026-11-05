@@ -475,11 +475,19 @@ async def detail_analysis(session, inquiry):
             draft_result=result.draft_result,
             review_reasons=draft.review_reasons,
         )
+    # 종료·답변·새 revision으로 무효화된 작업은 worker 정리 전에도 실행 대기로
+    # 표시하지 않는다. 저장된 실행 이력은 보존하고 조회 상태만 비운다.
+    run_status = request.run_status
+    if request.phase == "superseded" or (
+        run_status in (RunStatus.PENDING, RunStatus.RUNNING)
+        and not current_request(inquiry, request)
+    ):
+        run_status = None
     return {
         "automatic_response": await response_view(session, automatic),
         "analysis_request_id": request.request_id,
         "latest_run_id": request.run_id,
-        "run_status": request.run_status,
+        "run_status": run_status,
         "analysis_error": request.error_code,
         "analysis": result.analysis if result else None,
         "additional_question": result.additional_question if result else None,

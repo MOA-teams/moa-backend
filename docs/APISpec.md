@@ -445,6 +445,8 @@ multipart/form-data의 file 바이너리 필드와 purpose 필드를 사용한�
 }
 ```
 
+관리자 상세의 `run_status`는 nullable이다. 종료·답변·revision 변경으로 무효화된 작업의 `대기/처리 중` 상태 및 `superseded` 작업은 `null`로 반환한다. 프론트는 `null`을 실행 대기로 표시하지 않는다. 요청/run ID와 저장된 실행 이력은 삭제하지 않으며, 정상적인 최신 분석의 대기·처리 중 상태와 완료·실패 이력은 유지한다.
+
 ### A03 · PATCH /admin/inquiries/{inquiry_id}/classification
 
 담당: **백엔드**
