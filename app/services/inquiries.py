@@ -151,7 +151,12 @@ async def message_page(session: AsyncSession, *, inquiry: Inquiry, user: Authent
         ).order_by(Attachment.attachment_id))).all()
         for attachment in attachments:
             by_message.setdefault(attachment.message_id, []).append(AttachmentMetadata.model_validate(attachment))
-    messages = [MessageResponse.model_validate(row).model_copy(update={"attachments": by_message.get(row.message_id, [])}) for row in rows]
+    from app.db.models import Answer
+    answer_ids = dict((await session.execute(select(Answer.message_id, Answer.public_id).where(
+        Answer.inquiry_id == inquiry.inquiry_id, Answer.message_id.in_([row.message_id for row in rows])
+    ))).all())
+    messages = [MessageResponse.model_validate(row).model_copy(update={"attachments": by_message.get(row.message_id, []),
+        "answer_id": answer_ids.get(row.message_id)}) for row in rows]
     next_cursor = encode_cursor(scope, {"after": rows[-1].sequence if rows else after})
     return messages, next_cursor, has_more
 
@@ -164,4 +169,6 @@ async def get_customer_chat(session: AsyncSession, *, user: AuthenticatedUser, i
     if inquiry is None:
         raise inquiry_not_found()
     messages, next_cursor, has_more = await message_page(session, inquiry=inquiry, user=user, cursor=cursor, limit=limit)
-    return InquiryChatResponse(inquiry_id=inquiry_id, status=inquiry.status, messages=messages, next_cursor=next_cursor, has_more=has_more)
+    from app.services.answers import feedback_state
+    return InquiryChatResponse(inquiry_id=inquiry_id, status=inquiry.status, messages=messages, next_cursor=next_cursor,
+        has_more=has_more, **await feedback_state(session, inquiry))

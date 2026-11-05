@@ -200,6 +200,8 @@ async def request_analysis(session, *, user, inquiry_id, payload, key):
 async def classify(session, *, user, inquiry_id, payload):
     try:
         inquiry = await staff_inquiry(session, user, inquiry_id)
+        if inquiry.status == InquiryStatus.CLOSED:
+            raise APIError(409, "INQUIRY_CLOSED", "종료된 문의는 변경할 수 없습니다.")
         if inquiry.revision != payload.expected_revision:
             raise APIError(
                 409, "STALE_INQUIRY_REVISION", "최신 문의를 다시 조회해 주세요."

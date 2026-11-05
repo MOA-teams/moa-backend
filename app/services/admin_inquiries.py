@@ -58,7 +58,12 @@ async def get_inquiry_detail(
         Message.inquiry_id == inquiry.inquiry_id, Message.sender == MessageSender.CUSTOMER,
         Message.sequence <= inquiry.last_message_sequence,
     ).order_by(Message.sequence.desc()).limit(1))
+    from app.db.models import Tenant
+    from app.services.answers import answer_audits, feedback_state
     return InquiryDetailResponse(
+        backend_knowledge_revision=await session.scalar(select(Tenant.knowledge_revision).where(Tenant.tenant_id == tenant_id)),
+        answers=await answer_audits(session, inquiry, messages),
+        **await feedback_state(session, inquiry),
         **{field: getattr(inquiry, field) for field in (
             "status", "tenant_id", "source_customer_id", "title", "revision", "customer_category",
             "env", "category", "urgency", "created_at", "updated_at", "processing_stage",

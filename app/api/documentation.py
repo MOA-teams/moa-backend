@@ -75,6 +75,17 @@ TOKEN_EXAMPLE = {"access_token": "eyJhbGciOiJIUzI1NiJ9.example.signature", "refr
 TENANT_EXAMPLE = {"tenant_id": "syncnote", "name": "싱크노트"}
 
 ERROR_DOCUMENTATION = {
+    "STALE_CUSTOMER_MESSAGE": (409, "최신 고객 메시지를 확인해 주세요.", "고객 메시지 변경"),
+    "STALE_DRAFT": (409, "초안을 다시 확인해 주세요.", "초안 또는 분석 실행 변경"),
+    "STALE_KNOWLEDGE": (409, "최신 문서를 확인하고 재분석해 주세요.", "백엔드 문서 변경번호 불일치"),
+    "STALE_EVIDENCE": (409, "근거 문서의 최신 유효 상태를 확인해 주세요.", "근거 폐기·재검토·검색 상태 변경"),
+    "EVIDENCE_NOT_RETRIEVED": (409, "초안의 문서 근거만 사용할 수 있습니다.", "초안 근거 밖의 문서"),
+    "CODE_EVIDENCE_UNVERIFIED": (409, "코드 근거 최신성을 확인할 수 없습니다.", "GitHub 연동 필요"),
+    "EVIDENCE_CHECK_UNAVAILABLE": (503, "근거 최신성을 확인하지 못했습니다.", "AI 조회 실패, 발송 없음"),
+    "ANSWER_ALREADY_SENT": (409, "이미 발송된 답변입니다.", "중복 발송 차단"),
+    "ANSWER_REQUIRED": (409, "최종 답변이 필요합니다.", "답변 없는 상담 종료·평가 차단"),
+    "INQUIRY_NOT_CLOSED": (409, "상담 종료 후 평가할 수 있습니다.", "진행 중 문의 평가"),
+    "FEEDBACK_ALREADY_SUBMITTED": (409, "이미 평가했습니다.", "최초 평가 이후 재제출"),
     "DOCUMENT_NOT_FOUND": (404, "문서 또는 버전을 찾을 수 없습니다.", "문서 없음 또는 다른 기업의 문서"),
     "DOCUMENT_ID_EXHAUSTED": (409, "이 기업의 AI 문서 ID 999개를 모두 사용했습니다.", "AI 문서 ID 한도 소진"),
     "DOCUMENT_VERSION_CONFLICT": (409, "문서 버전이 현재 상태와 충돌합니다.", "중복·건너뛴 버전 또는 이전 버전 활성화"),

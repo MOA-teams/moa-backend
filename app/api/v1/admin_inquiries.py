@@ -78,3 +78,32 @@ async def analyze(inquiry_id: InquiryId, payload: AnalysisRetry, key: Idempotenc
 async def classification(inquiry_id: InquiryId,payload: ClassificationRequest,
                          user: Annotated[AuthenticatedUser, Depends(get_user)],session: Annotated[AsyncSession, Depends(get_db)]):
     return await classify(session,user=user,inquiry_id=inquiry_id,payload=payload)
+
+
+from app.core.rag import get_rag_client
+from app.schemas.answers import AnswerRequest, AnswerResponse, CloseRequest, CloseResponse
+from app.services.answers import send_answer, close_inquiry
+
+ANSWER_ERRORS = ("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "FORBIDDEN", "TENANT_REQUIRED",
+    "INQUIRY_NOT_FOUND", "INQUIRY_CLOSED", "IDEMPOTENCY_CONFLICT", "STALE_INQUIRY_REVISION",
+    "STALE_CUSTOMER_MESSAGE", "STALE_DRAFT", "STALE_KNOWLEDGE", "STALE_EVIDENCE",
+    "EVIDENCE_NOT_RETRIEVED", "CODE_EVIDENCE_UNVERIFIED", "DOCUMENT_NOT_FOUND",
+    "EVIDENCE_CHECK_UNAVAILABLE", "ANSWER_ALREADY_SENT")
+
+
+@router.post("/{inquiry_id}/answers", status_code=201, response_model=AnswerResponse,
+    summary="담당자 최종 답변 승인·발송", responses=documented_errors(*ANSWER_ERRORS, bearer_auth=True),
+    description="Idempotency-Key 필수. 상세 조회의 문의 revision·최신 고객 메시지·backend_knowledge_revision을 보냅니다. 초안 ID/revision은 함께 지정하거나 직접 작성 시 둘 다 null입니다. AI 검수 실패도 담당자 승인할 수 있지만 최신성 검사는 생략하지 않습니다. 답변과 채팅 메시지가 함께 저장된 뒤 201입니다.")
+async def answer(inquiry_id: InquiryId, payload: AnswerRequest, key: IdempotencyKey,
+    user: Annotated[AuthenticatedUser, Depends(get_user)], session: Annotated[AsyncSession, Depends(get_db)],
+    rag=Depends(get_rag_client)) -> AnswerResponse:
+    return await send_answer(session, user=user, inquiry_id=inquiry_id, payload=payload, key=key, rag=rag)
+
+
+@router.post("/{inquiry_id}/close", response_model=CloseResponse,
+    summary="최종 답변 이후 상담 종료·평가 요청",
+    responses=documented_errors(*ERRORS, "INQUIRY_NOT_FOUND", "INQUIRY_CLOSED", "STALE_INQUIRY_REVISION", "ANSWER_REQUIRED", "IDEMPOTENCY_CONFLICT", bearer_auth=True),
+    description="Idempotency-Key 필수. 답변이 있는 문의만 종료합니다. expected_inquiry_revision을 확인하고 종료와 평가 요청을 함께 저장합니다. 해결 상태는 미확인이며 종료만으로 해결 처리하지 않습니다.")
+async def close(inquiry_id: InquiryId, payload: CloseRequest, key: IdempotencyKey,
+    user: Annotated[AuthenticatedUser, Depends(get_user)], session: Annotated[AsyncSession, Depends(get_db)]) -> CloseResponse:
+    return await close_inquiry(session, user=user, inquiry_id=inquiry_id, payload=payload, key=key)
