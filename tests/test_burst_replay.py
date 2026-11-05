@@ -1,9 +1,11 @@
+from copy import deepcopy
 import json
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
-from scripts.burst_replay import ReplayError, load_plan, main, normalize_base
+from scripts.burst_replay import ReplayError, load_plan, main, normalize_base, replay
 
 
 @pytest.fixture
@@ -82,3 +84,72 @@ def test_dry_run_needs_no_auth_and_writes_no_state(seed_file, tmp_path, capsys):
 def test_invalid_api_base_is_rejected(base):
     with pytest.raises(ReplayError, match="INVALID_API_BASE_URL"):
         normalize_base(base)
+
+
+def test_schedule_resume_and_changed_input_rejection(seed_file, tmp_path):
+    plan = load_plan(seed_file)
+    state = tmp_path / "state.json"
+    now, posts = [0.0], []
+
+    def handler(request):
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={"user_id": "U-2001", "tenant_id": "syncnote", "role": "customer"},
+            )
+        posts.append((now[0], request.headers["Idempotency-Key"]))
+        return httpx.Response(201, json={"inquiry_id": f"Q-{1000 + len(posts)}"})
+
+    def sleep(seconds):
+        now[0] += seconds
+
+    with httpx.Client(
+        base_url="https://demo.test", transport=httpx.MockTransport(handler)
+    ) as client:
+        kwargs = dict(
+            base="https://demo.test",
+            tenant="syncnote",
+            state_path=state,
+            duration=120,
+            sleep=sleep,
+            clock=lambda: now[0],
+        )
+        replay(client, plan, **kwargs)
+        assert [t for t, _ in posts] == [0, 60, 120]
+        replay(client, plan, **kwargs)
+        assert len(posts) == 3
+        changed = deepcopy(plan)
+        changed[0]["body"]["message"] = "바뀐 내용"
+        with pytest.raises(ReplayError, match="REPLAY_STATE_MISMATCH"):
+            replay(client, changed, **kwargs)
+        assert len(posts) == 3
+
+
+@pytest.mark.parametrize(
+    "actor",
+    [
+        {"user_id": "agent_01", "tenant_id": "syncnote", "role": "agent"},
+        {"user_id": "U-2001", "tenant_id": "other", "role": "customer"},
+        {"user_id": "U-2001", "tenant_id": None, "role": "customer"},
+    ],
+)
+def test_wrong_actor_never_creates_inquiry_or_run_state(seed_file, tmp_path, actor):
+    state = tmp_path / "state.json"
+
+    def handler(request):
+        assert request.method == "GET"
+        return httpx.Response(200, json=actor)
+
+    with httpx.Client(
+        base_url="https://demo.test", transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(ReplayError, match="CUSTOMER_TENANT_MISMATCH"):
+            replay(
+                client,
+                load_plan(seed_file),
+                base="https://demo.test",
+                tenant="syncnote",
+                state_path=state,
+                duration=0,
+            )
+    assert not state.exists()
