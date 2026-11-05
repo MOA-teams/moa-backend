@@ -292,6 +292,25 @@ async def persist_answer(
     )
 
 
+async def validate_and_persist_answer(session, *, inquiry, user, payload, rag):
+    """잠긴 문의의 발송 검사를 공유한다. 재검토 결정과 발송 기록을 같은 commit에 묶는다."""
+    check_open_revision(inquiry, payload.expected_inquiry_revision)
+    customer = await latest_customer(session, inquiry)
+    if customer is None or customer.public_id != payload.expected_last_customer_message_id:
+        conflict("STALE_CUSTOMER_MESSAGE", "최신 고객 메시지를 확인해 주세요.")
+    draft, request, run = await approved_draft(session, inquiry, payload, customer)
+    knowledge = await lock_knowledge(session, inquiry.tenant_id)
+    if (knowledge.knowledge_revision != payload.expected_backend_knowledge_revision
+            or (request is not None and request.backend_knowledge_revision != knowledge.knowledge_revision)):
+        conflict("STALE_KNOWLEDGE", "문서가 변경되었습니다. 최신 문서를 확인하고 초안을 재분석해 주세요.")
+    try:
+        await asyncio.wait_for(verify_evidence(session, inquiry, payload.evidence, rag), timeout=10)
+    except (RagError, TimeoutError):
+        raise APIError(503, "EVIDENCE_CHECK_UNAVAILABLE", "근거 최신성을 확인하지 못했습니다. 같은 요청으로 재시도해 주세요.") from None
+    return await persist_answer(session, inquiry=inquiry, customer=customer, user=user, payload=payload,
+                                knowledge_revision=knowledge.knowledge_revision, draft=draft, run=run)
+
+
 async def send_answer(session, *, user, inquiry_id, payload, key, rag):
     try:
         inquiry, record = await begin_action(
@@ -300,50 +319,7 @@ async def send_answer(session, *, user, inquiry_id, payload, key, rag):
         if record.response:
             response = AnswerResponse.model_validate(record.response)
         else:
-            check_open_revision(inquiry, payload.expected_inquiry_revision)
-            customer = await latest_customer(session, inquiry)
-            if (
-                customer is None
-                or customer.public_id != payload.expected_last_customer_message_id
-            ):
-                conflict("STALE_CUSTOMER_MESSAGE", "최신 고객 메시지를 확인해 주세요.")
-            draft, request, run = await approved_draft(
-                session, inquiry, payload, customer
-            )
-            knowledge = await lock_knowledge(session, inquiry.tenant_id)
-            if (
-                knowledge.knowledge_revision
-                != payload.expected_backend_knowledge_revision
-                or (
-                    request is not None
-                    and request.backend_knowledge_revision
-                    != knowledge.knowledge_revision
-                )
-            ):
-                conflict(
-                    "STALE_KNOWLEDGE",
-                    "문서가 변경되었습니다. 최신 문서를 확인하고 초안을 재분석해 주세요.",
-                )
-            try:
-                await asyncio.wait_for(
-                    verify_evidence(session, inquiry, payload.evidence, rag), timeout=10
-                )
-            except (RagError, TimeoutError):
-                raise APIError(
-                    503,
-                    "EVIDENCE_CHECK_UNAVAILABLE",
-                    "근거 최신성을 확인하지 못했습니다. 같은 요청으로 재시도해 주세요.",
-                ) from None
-            response = await persist_answer(
-                session,
-                inquiry=inquiry,
-                customer=customer,
-                user=user,
-                payload=payload,
-                knowledge_revision=knowledge.knowledge_revision,
-                draft=draft,
-                run=run,
-            )
+            response = await validate_and_persist_answer(session, inquiry=inquiry, user=user, payload=payload, rag=rag)
             record.response = response.model_dump(mode="json")
         await session.commit()
         return response

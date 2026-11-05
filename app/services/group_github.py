@@ -169,11 +169,20 @@ class IntegrationIssueGateway(HttpIssueGateway):
             self.github.require_config()
         except GitHubError as error:
             if error.code == "GITHUB_NOT_CONFIGURED":
+                self.readiness_reason = "GITHUB_CONFIG_MISSING"
                 return False
             raise
         async with self.factory() as session:
             row = await integration_for(session, tenant)
-            return enabled(row) and row.status == "연결 완료"
+            self.readiness_reason = (
+                "GITHUB_INTEGRATION_MISSING" if row is None else
+                "GITHUB_INTEGRATION_DISABLED" if not row.enabled else
+                "GITHUB_SECURITY_LEVEL_DISABLED" if row.security_level not in (1, 2) else
+                "GITHUB_INTEGRATION_INCOMPLETE" if not enabled(row) else
+                "GITHUB_SYNC_PENDING" if row.status == "동기화 중" else
+                "GITHUB_SYNC_FAILED" if row.status != "연결 완료" else None
+            )
+            return self.readiness_reason is None
 
     async def prepare(self, tenant, payload):
         async with self.factory() as session:

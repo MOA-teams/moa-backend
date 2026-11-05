@@ -164,12 +164,19 @@ async def main(once=False, retry=None):
             await retry_job(async_session_factory, retry)
             return
         while True:
+            from app.workers.push_events import run_once as history_once
+            try:
+                history_worked = await history_once(async_session_factory, get_github_client())
+            except Exception:
+                # 이력 작업의 lease로 복구하며 기존 지식 동기화 루프는 계속 실행한다.
+                logger.error("github_history_iteration_failed")
+                history_worked = False
             worked = await run_once(
                 async_session_factory, get_github_client(), get_rag_client()
             )
             if once:
                 return
-            if not worked:
+            if not worked and not history_worked:
                 await asyncio.sleep(2)
     finally:
         await engine.dispose()

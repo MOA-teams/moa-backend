@@ -104,7 +104,7 @@ async def add_message(session: AsyncSession, *, user: AuthenticatedUser, inquiry
     try:
         inquiry = await session.scalar(select(Inquiry).where(
             Inquiry.public_id == inquiry_id, Inquiry.tenant_id == tenant_id, Inquiry.customer_id == user.internal_user_id,
-        ).with_for_update().execution_options(populate_existing=True))
+        ).with_for_update(key_share=True).execution_options(populate_existing=True))
         if inquiry is None:
             raise inquiry_not_found()
         record = await begin_idempotent_request(session, user_id=user.internal_user_id, path=f"/inquiries/{inquiry.inquiry_id}/messages", key=key, payload=payload)

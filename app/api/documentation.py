@@ -70,6 +70,7 @@ MOA 프론트엔드 연동을 위한 인증·기업 소속·문의·채팅·S3 �
 """
 
 OPENAPI_TAGS = [
+    {"name": "change-reviews", "description": "실제 GitHub 변경 이력과 미발송 초안·문서의 재검토. 초안 승인·수정은 고객 발송까지 수행하며, 문서는 새 버전의 검색 동기화를 별도로 기다립니다."},
     {"name": "github", "description": "관리자 GitHub App 인증·저장소 선택·보안 레벨 설정과 서명 Webhook 동기화. GitHubOperations.md 참조."},
     {"name": "documents", "description": "같은 기업 agent/admin의 문서 원본·불변 버전 관리와 RAG 인덱싱 상태 조회."},
     {"name": "auth", "description": "회원가입·로그인·토큰 갱신·내 정보 조회. 고객·담당자·관리자 모두 같은 인증 흐름을 사용합니다."},

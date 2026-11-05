@@ -413,7 +413,7 @@ async def test_groups_branch_upgrade_preserves_jobs_and_alerts(
     async with db_engine.begin() as c:
         await c.run_sync(migrate, "downgrade", "0012_groups_alerts")
         before = {
-            table: (await c.execute(text(f"SELECT * FROM {table} ORDER BY 1"))).all()
+            table: (await c.execute(text(f"SELECT * FROM {table} ORDER BY 1"))).mappings().all()
             for table in tables
         }
         await c.run_sync(migrate, "upgrade", "head")
@@ -421,9 +421,9 @@ async def test_groups_branch_upgrade_preserves_jobs_and_alerts(
             await c.execute(text("SELECT version_num FROM alembic_version"))
         ).scalars().all() == [migration_head]
         for table in tables:
-            assert (
-                await c.execute(text(f"SELECT * FROM {table} ORDER BY 1"))
-            ).all() == before[table]
+            after = (await c.execute(text(f"SELECT * FROM {table} ORDER BY 1"))).mappings().all()
+            # 새 nullable 컬럼은 허용하되 기존 모든 컬럼의 값은 그대로 비교한다.
+            assert [{key: row[key] for key in old} for row, old in zip(after, before[table], strict=True)] == before[table]
 
 
 async def test_metadata_only_policy_exposes_paths_without_code(

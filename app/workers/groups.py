@@ -7,6 +7,7 @@ from contextlib import suppress
 from app.services.groups import tick
 from app.workers.group_issues import run_once as issue_once
 from app.workers.inquiry_summaries import run_once as summary_once
+from app.workers.reviews import run_once as review_once
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ async def loop(factory, action, interval):
 async def run_forever(factory):
     tasks = [
         asyncio.create_task(loop(factory, action, interval))
-        for action, interval in ((tick, 5), (issue_once, 1), (summary_once, 1))
+        for action, interval in ((tick, 5), (issue_once, 1), (summary_once, 1), (review_once, 5))
     ]
     try:
         await asyncio.gather(*tasks)

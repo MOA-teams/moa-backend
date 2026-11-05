@@ -39,7 +39,7 @@ async def enqueue_issue(
         select(IssueJob).where(IssueJob.episode_pk == episode.episode_pk)
     )
     if job:
-        if not automatic:
+        if not automatic and not job.issue_url and job.phase != "reconcile":
             job.automatic = False
             if job.error_code == "EPISODE_ENDED" and job.phase == "done":
                 job.phase, job.status, job.error_code = (
@@ -96,6 +96,7 @@ async def enqueue_issue(
             "include_suspected_code": include_suspected_code,
             "github_target": target,
             "github_sources": references,
+            "code_candidates": candidates,
         },
     )
     session.add(job)

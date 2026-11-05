@@ -42,10 +42,11 @@ def fingerprint(value):
 
 
 async def lock_inquiry(session, internal_id):
+    # PK는 변경하지 않는다. 지식 변경의 ReviewItem INSERT(FK KEY SHARE)와 교착하지 않는다.
     return await session.scalar(
         select(Inquiry)
         .where(Inquiry.inquiry_id == internal_id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
 
@@ -57,7 +58,7 @@ async def staff_inquiry(session, user, external_id):
     inquiry = await session.scalar(
         select(Inquiry)
         .where(Inquiry.public_id == external_id, Inquiry.tenant_id == tenant)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
     if inquiry is None:

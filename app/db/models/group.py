@@ -128,6 +128,8 @@ class IssueJob(BaseEntity):
         String(100), default="GITHUB_INTEGRATION_NOT_READY"
     )
     issue_url: Mapped[str | None] = mapped_column(Text)
+    issue_metadata: Mapped[dict | None] = mapped_column(JSONB)
+    readiness_reason: Mapped[str | None] = mapped_column(String(100))
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     available_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

@@ -426,8 +426,11 @@ async def webhook(session, *, raw, signature, delivery, event_type, secret):
                 continue
             if revoke or removed or data.get("deleted"):
                 row.enabled = False
-            await enqueue(session, row)
+            job = await enqueue(session, row)
             received.integration_id, received.accepted = row.integration_id, True
+            if push:
+                from app.services.push_events import preserve_push
+                await preserve_push(session, row, job, received, data)
         await session.commit()
         return {
             "accepted": received.accepted,

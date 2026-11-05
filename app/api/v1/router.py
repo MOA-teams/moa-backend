@@ -15,3 +15,6 @@ router.include_router(documents.router)
 from app.api.v1 import groups
 router.include_router(groups.router)
 router.include_router(github.router)
+
+from app.api.v1 import reviews
+router.include_router(reviews.router)
