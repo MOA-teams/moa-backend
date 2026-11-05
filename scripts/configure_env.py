@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from dotenv.parser import parse_stream
 from pydantic import ValidationError
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -43,7 +44,10 @@ def runtime_environment(raw: dict[str, str]) -> dict[str, str]:
     # 모든 Settings 필드를 명시해 배포 프로세스의 과거 환경변수가 검증에 섞이지 않게 한다.
     values = {name: raw.get(name.upper(), field.default) for name, field in Settings.model_fields.items()}
     settings = Settings(_env_file=None, **values)
-    url = make_url(settings.database_url.get_secret_value())
+    try:
+        url = make_url(settings.database_url.get_secret_value())
+    except ArgumentError:
+        raise ValueError("DB URL 형식 오류") from None
     if url.drivername != "postgresql+asyncpg" or not url.database:
         raise ValueError("DB URL 형식 오류")
     ai = urlsplit(settings.ai_base_url)
