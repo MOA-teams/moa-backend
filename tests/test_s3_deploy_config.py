@@ -88,16 +88,16 @@ def test_server_rejects_payload_without_running_sudo():
     assert "Traceback" not in result.stderr
 
 
-def test_workflow_passes_secrets_via_ssh_stdin_not_arguments(tmp_path):
+def test_workflow_passes_env_file_via_ssh_stdin_not_arguments(tmp_path):
     workflow = yaml.load((PROJECT_ROOT / ".github/workflows/deploy.yml").read_text(), Loader=yaml.BaseLoader)
     job = workflow["jobs"]["deploy"]
     assert job["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/main'"
     assert job["steps"][0]["uses"] == "actions/checkout@v4"
     step = job["steps"][-1]
-    for key in configure_s3.CONFIG_KEYS:
-        assert step["env"][key] == "${{ secrets." + key + " }}"
+    assert step["env"]["ENV_FILE"] == "${{ secrets.ENV_FILE }}"
+    assert not set(configure_s3.CONFIG_KEYS) & set(step["env"])
     # 실제 workflow의 전달 부분만 실행한다. SSH·키 파일·실제 서버는 사용하지 않는다.
-    pipeline = step["run"][step["run"].index("python3 scripts/configure_s3.py --export"):]
+    pipeline = step["run"][step["run"].index("printf '%s' \"$ENV_FILE\""):]
     command_dir = tmp_path / "commands"
     command_dir.mkdir()
     capture = tmp_path / "payload.json"
@@ -105,13 +105,13 @@ def test_workflow_passes_secrets_via_ssh_stdin_not_arguments(tmp_path):
     fake_ssh = command_dir / "ssh"
     fake_ssh.write_text('#!/bin/bash\nset -eu\nprintf "%s\\n" "$@" > "$S3_TEST_ARGUMENTS"\ncat > "$S3_TEST_PAYLOAD"\n')
     fake_ssh.chmod(0o700)
-    env = {**os.environ, **TEST_CONFIG, "SSH_USER": "test-user", "SSH_HOST": "example.test",
+    payload = 'JWT_SECRET_KEY="test-only $value %value `not-a-command`"\nAI_BASE_URL=http://127.0.0.1:8001\n'
+    env = {**os.environ, "ENV_FILE": payload, "SSH_USER": "test-user", "SSH_HOST": "example.test",
            "S3_TEST_PAYLOAD": str(capture), "S3_TEST_ARGUMENTS": str(arguments),
            "PATH": str(command_dir) + os.pathsep + os.environ["PATH"]}
     result = subprocess.run(["bash", "-euo", "pipefail", "-c", pipeline], cwd=PROJECT_ROOT,
                             env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert json.loads(capture.read_text()) == TEST_CONFIG
-    assert "--configure-s3" in arguments.read_text()
-    assert TEST_CONFIG["S3_BUCKET_NAME"] not in arguments.read_text() + result.stdout + result.stderr
-    assert "AWS_SECRET_ACCESS_KEY" not in capture.read_text()
+    assert capture.read_text() == payload
+    assert "--env-file" in arguments.read_text()
+    assert "test-only" not in arguments.read_text() + result.stdout + result.stderr
