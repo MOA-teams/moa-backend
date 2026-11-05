@@ -148,3 +148,30 @@ async def test_inquiry_migration_preserves_auth_data_and_removes_only_new_schema
         assert not await connection.scalar(text("SELECT EXISTS(SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname=current_schema() AND t.typname='inquiry_status')"))
     async with db_engine.begin() as connection:
         await connection.run_sync(migrate, "upgrade", "head")
+
+
+async def test_source_customer_migration_preserves_existing_inquiry_and_ownership(db_engine, migrate):
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "downgrade", "0004_create_inquiries")
+        await connection.execute(text("INSERT INTO tenants(tenant_id,name) VALUES ('syncnote','싱크노트')"))
+        await connection.execute(text("INSERT INTO users(email,password,role,tenant_id) VALUES ('source@example.com','test-only','customer','syncnote')"))
+        await connection.execute(text("INSERT INTO inquiries(tenant_id,customer_id,title,customer_category,env,status,revision,last_message_sequence) VALUES ('syncnote',1,'기존 문의','bug','{\"error_code\":\"E-502\"}'::jsonb,'received',1,0)"))
+        before = (await connection.execute(text("SELECT inquiry_id,tenant_id,customer_id,title,env,created_at,updated_at FROM inquiries"))).one()
+        user_before = (await connection.execute(text("SELECT * FROM users"))).one()
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "upgrade", "head")
+        assert (await connection.execute(text("SELECT inquiry_id,tenant_id,customer_id,title,env,created_at,updated_at FROM inquiries"))).one() == before
+        assert await connection.scalar(text("SELECT source_customer_id FROM inquiries")) is None
+        columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("inquiries"))
+        external = next(column for column in columns if column["name"] == "source_customer_id")
+        assert external["nullable"] and external["type"].length == 128
+        await connection.execute(text("UPDATE inquiries SET source_customer_id='U-2001'"))
+        assert (await connection.execute(text("SELECT * FROM users"))).one() == user_before
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "downgrade", "0004_create_inquiries")
+        assert (await connection.execute(text("SELECT inquiry_id,tenant_id,customer_id,title,env,created_at,updated_at FROM inquiries"))).one() == before
+        columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("inquiries"))
+        assert not any(column["name"] == "source_customer_id" for column in columns)
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "upgrade", "head")
+        assert (await connection.execute(text("SELECT * FROM users"))).one() == user_before
