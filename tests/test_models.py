@@ -61,7 +61,7 @@ async def test_migration_matches_models_and_supports_downgrade(db_engine, migrat
         differences = await connection.run_sync(lambda conn: compare_metadata(MigrationContext.configure(conn), Base.metadata))
         assert differences == []
         tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-        assert set(tables) == {"users", "refresh_tokens", "tenants", "inquiries", "messages", "attachments", "idempotency_records", "analysis_requests", "analysis_runs", "analysis_drafts", "classification_history", "alembic_version", "documents", "document_versions", "document_counters", "document_jobs"}
+        assert set(tables) == {"users", "refresh_tokens", "tenants", "inquiries", "messages", "attachments", "idempotency_records", "analysis_requests", "analysis_runs", "analysis_drafts", "classification_history", "answers", "feedback", "alembic_version", "documents", "document_versions", "document_counters", "document_jobs"}
         columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
         identity = next(column for column in columns if column["name"] == "user_id")
         assert identity["identity"]["start"] == 1
@@ -124,12 +124,12 @@ async def test_inquiry_migration_preserves_auth_data_and_removes_only_new_schema
         await connection.execute(text("INSERT INTO users(email,password,role,tenant_id) VALUES ('phase3@example.com','test-only','customer','alpha')"))
         await connection.execute(text("INSERT INTO refresh_tokens(user_id,token_hash,expires_at) VALUES (1,:hash,now() + interval '7 days')"), {"hash": "b" * 64})
         users = (await connection.execute(text("SELECT user_id,email,password,role,tenant_id,created_at,updated_at FROM users"))).all()
-        tenants = (await connection.execute(text("SELECT * FROM tenants"))).all()
+        tenants = (await connection.execute(text("SELECT tenant_id,name,created_at,updated_at FROM tenants"))).all()
         tokens = (await connection.execute(text("SELECT * FROM refresh_tokens"))).all()
     async with db_engine.begin() as connection:
         await connection.run_sync(migrate, "upgrade", "head")
         assert (await connection.execute(text("SELECT user_id,email,password,role,tenant_id,created_at,updated_at FROM users"))).all() == users
-        assert (await connection.execute(text("SELECT * FROM tenants"))).all() == tenants
+        assert (await connection.execute(text("SELECT tenant_id,name,created_at,updated_at FROM tenants"))).all() == tenants
         assert (await connection.execute(text("SELECT * FROM refresh_tokens"))).all() == tokens
         for enum, expected in {
             "inquiry_category": ["이용 방법", "계정", "결제", "기능 오류", "개선 요청", "기타"],
