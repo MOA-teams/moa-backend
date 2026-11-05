@@ -13,7 +13,7 @@ from app.services.inquiries import add_message, create_inquiry, get_customer_cha
 
 router = APIRouter(prefix="/inquiries", tags=["inquiries"], dependencies=[Depends(require_roles(UserRole.CUSTOMER))])
 IdempotencyKey = Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=200, pattern=r"^[!-~]+$", description="논리 요청마다 생성한 UUID 등 ASCII 키. 재시도에는 같은 키·본문을 사용하고 새 메시지에는 새 키를 사용하세요.")]
-InquiryId = Annotated[int, Path(gt=0, le=9223372036854775807, description="숫자 문의 ID")]
+InquiryId = Annotated[str, Path(pattern=r"^Q-[0-9]{4}$", description="외부 문의 ID")]
 Cursor = Annotated[str | None, Query(max_length=2048, description="서버의 next_cursor를 그대로 전달. 최초 조회는 생략합니다.")]
 Limit = Annotated[int, Query(ge=1, le=100, description="페이지 크기. 기본 20, 최대 100")]
 COMMON_ERRORS = ("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "FORBIDDEN", "TENANT_REQUIRED")
@@ -24,20 +24,20 @@ COMMON_ERRORS = ("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "FORBIDDEN", "TENAN
     summary="문의 접수와 첫 메시지·접수 안내 저장",
     description="""기업 소속 customer 전용. tenant_id·customer_id·created_at은 보내지 않습니다.
 문의·첫 고객 메시지·고정 접수 안내·첨부 연결을 함께 저장하며 AI를 기다리거나 호출하지 않습니다.
-customer_category는 영어 Enum이고 실제 AI 분류는 아직 null입니다.
+customer_category는 한글 Enum이고 실제 AI 분류는 아직 null입니다.
 싱크노트 진입 query의 cid는 선택 필드 source_customer_id로 보냅니다(문자열, 최대 128자).
 source_customer_id는 참고 정보로만 저장하며 실제 고객·기업은 로그인한 사용자로 결정합니다.
 os·app_version·error_code는 env에 보내세요. 로그인·회원가입 전후 query 보존은 프론트에서 처리합니다.
-첨부는 먼저 /attachments로 업로드한 숫자 ID 배열을 보냅니다(최대 10개).
+첨부는 먼저 /attachments로 업로드한 문자열 ID 배열을 보냅니다(최대 10개).
 Idempotency-Key는 필수이며 같은 키·본문의 재시도는 같은 201 응답입니다. 같은 키·다른 본문은 409입니다.
-문의 ID는 Q- 접두어가 없는 숫자 자동 증가 값입니다.""",
+문의 ID는 Q-1001 형식의 문자열입니다.""",
     responses=documented_errors(*COMMON_ERRORS, "IDEMPOTENCY_CONFLICT", "ATTACHMENT_NOT_FOUND", "ATTACHMENT_ALREADY_LINKED", bearer_auth=True),
 )
 async def create(
     payload: Annotated[InquiryCreateRequest, Body(openapi_examples={
-        "plain": {"summary": "첨부 없는 문의", "value": {"message": "저장할 때 E-502가 떠요.", "customer_category": "bug", "env": {"os": "iOS 18", "app_version": "2.4.0", "error_code": "E-502"}, "attachments": []}},
-        "syncnote": {"summary": "로그인 후 싱크노트에서 전달된 고객·오류 정보로 접수", "value": {"message": "저장할 때 오류가 발생해요.", "source_customer_id": "U-2001", "customer_category": "bug", "env": {"os": "iOS 18", "app_version": "2.4.0", "error_code": "E-502"}, "attachments": []}},
-        "attached": {"summary": "본인이 업로드한 첨부 ID로 교체", "value": {"message": "오류 화면입니다.", "customer_category": "bug", "attachments": [1]}},
+        "plain": {"summary": "첨부 없는 문의", "value": {"message": "저장할 때 E-502가 떠요.", "customer_category": "기능 오류", "env": {"os": "iOS 18", "app_version": "2.4.0", "error_code": "E-502"}, "attachments": []}},
+        "syncnote": {"summary": "로그인 후 싱크노트에서 전달된 고객·오류 정보로 접수", "value": {"message": "저장할 때 오류가 발생해요.", "source_customer_id": "U-2001", "customer_category": "기능 오류", "env": {"os": "iOS 18", "app_version": "2.4.0", "error_code": "E-502"}, "attachments": []}},
+        "attached": {"summary": "본인이 업로드한 첨부 ID로 교체", "value": {"message": "오류 화면입니다.", "customer_category": "기능 오류", "attachments": ["ATT-0001"]}},
     })],
     key: IdempotencyKey,
     user: Annotated[AuthenticatedUser, Depends(get_user)],

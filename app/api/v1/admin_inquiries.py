@@ -21,7 +21,7 @@ ERRORS = ("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "FORBIDDEN", "TENANT_REQUI
     summary="본인 기업의 문의 목록 조회",
     description="""기업 소속 agent/admin 전용이며 다른 기업 문의는 목록에 포함하지 않습니다.
 생성 시각 내림차순, 동일 시각은 숫자 문의 ID 내림차순입니다. 기본 20개, 최대 100개입니다.
-status/category/urgency는 영어 Enum입니다. category는 고객 선택 분류가 아닌 AI 분류를 필터링합니다.
+status/category/urgency는 한글 Enum입니다. category는 고객 선택 분류가 아닌 AI 분류를 필터링합니다.
 아직 AI 분석이 없으면 category·urgency·processing_stage·group_id는 null이며 해당 분류 필터에 매칭되지 않습니다.
 필터 변경 시 cursor를 비우고 처음부터 조회하세요. 마지막 페이지의 next_cursor는 null입니다.
 처음부터 새로 조회하면 이후 접수된 최신 문의를 볼 수 있습니다.""",
@@ -31,9 +31,9 @@ async def listing(
     user: Annotated[AuthenticatedUser, Depends(get_user)],
     session: Annotated[AsyncSession, Depends(get_db)],
     cursor: Cursor = None, limit: Limit = 20,
-    status: Annotated[InquiryStatus | None, Query(description="문의 상태, 예: received")] = None,
-    category: Annotated[InquiryCategory | None, Query(description="AI 분류, 예: bug. 미분석 문의는 null")] = None,
-    urgency: Annotated[InquiryUrgency | None, Query(description="긴급도, 예: high. 미분석 문의는 null")] = None,
+    status: Annotated[InquiryStatus | None, Query(description="문의 상태, 예: 접수")] = None,
+    category: Annotated[InquiryCategory | None, Query(description="AI 분류, 예: 기능 오류. 미분석 문의는 null")] = None,
+    urgency: Annotated[InquiryUrgency | None, Query(description="긴급도, 예: 높음. 미분석 문의는 null")] = None,
 ) -> InquiryListResponse:
     return await list_inquiries(session, user=user, cursor=cursor, limit=limit, status=status, category=category, urgency=urgency)
 

@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, ForeignKey, Identity, String, UniqueConstraint
+from sqlalchemy import BigInteger, ForeignKey, Identity, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -11,6 +11,7 @@ class IdempotencyRecord(BaseEntity):
         UniqueConstraint("user_id", "path", "key_hash", name="uq_idempotency_user_path_key"),
     )
 
+    contract_version: Mapped[int] = mapped_column(Integer, nullable=False, default=2, server_default="2")
     record_id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     path: Mapped[str] = mapped_column(String(200), nullable=False)

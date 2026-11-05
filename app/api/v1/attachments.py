@@ -47,7 +47,7 @@ async def upload(
     responses=documented_errors("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "TENANT_REQUIRED", "ATTACHMENT_NOT_FOUND", "STORAGE_UNAVAILABLE", bearer_auth=True),
 )
 async def download(
-    attachment_id: Annotated[int, Path(gt=0, le=9223372036854775807, description="숫자 첨부 ID")],
+    attachment_id: Annotated[str, Path(pattern=r"^ATT-[0-9]{4}$", description="외부 첨부 ID")],
     user: Annotated[AuthenticatedUser, Depends(get_user)],
     session: Annotated[AsyncSession, Depends(get_db)],
     storage: Annotated[S3Storage, Depends(get_s3_storage)],

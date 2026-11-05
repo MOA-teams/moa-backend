@@ -8,26 +8,26 @@ class UserRole(str, Enum):
 
 
 class InquiryCategory(str, Enum):
-    USAGE = "usage"
-    ACCOUNT = "account"
-    BILLING = "billing"
-    BUG = "bug"
-    FEATURE_REQUEST = "feature_request"
-    OTHER = "other"
+    USAGE = "이용 방법"
+    ACCOUNT = "계정"
+    BILLING = "결제"
+    BUG = "기능 오류"
+    FEATURE_REQUEST = "개선 요청"
+    OTHER = "기타"
 
 
 class InquiryUrgency(str, Enum):
-    HIGH = "high"
-    NORMAL = "normal"
-    LOW = "low"
+    HIGH = "높음"
+    NORMAL = "보통"
+    LOW = "낮음"
 
 
 class InquiryStatus(str, Enum):
-    RECEIVED = "received"
-    IN_REVIEW = "in_review"
-    NEEDS_INFO = "needs_info"
-    ANSWERED = "answered"
-    CLOSED = "closed"
+    RECEIVED = "접수"
+    IN_REVIEW = "담당자 확인 중"
+    NEEDS_INFO = "추가 정보 필요"
+    ANSWERED = "답변 완료"
+    CLOSED = "상담 종료"
 
 
 class MessageSender(str, Enum):
@@ -37,7 +37,7 @@ class MessageSender(str, Enum):
 
 
 class MessageType(str, Enum):
-    CUSTOMER_MESSAGE = "customer_message"
-    ACKNOWLEDGEMENT = "acknowledgement"
-    INFORMATION_REQUEST = "information_request"
-    FINAL_ANSWER = "final_answer"
+    CUSTOMER_MESSAGE = "고객 메시지"
+    ACKNOWLEDGEMENT = "접수 안내"
+    INFORMATION_REQUEST = "정보 수집 질문"
+    FINAL_ANSWER = "최종 답변"

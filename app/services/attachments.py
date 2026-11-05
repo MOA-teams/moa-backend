@@ -62,7 +62,8 @@ async def signed_attachment(attachment: Attachment, storage: S3Storage) -> Attac
     issued_at = datetime.now(timezone.utc)
     url = await run_in_threadpool(storage.download_url, attachment.storage_key)
     return AttachmentResponse(
-        **{name: getattr(attachment, name) for name in ("attachment_id", "file_name", "mime", "size")},
+        attachment_id=attachment.public_id,
+        **{name: getattr(attachment, name) for name in ("file_name", "mime", "size")},
         url=url, expires_at=issued_at + timedelta(seconds=storage.expires_in),
     )
 
@@ -73,11 +74,11 @@ async def upload_attachment(
 ) -> AttachmentResponse:
     tenant_id = require_tenant(user)
     name, extension, mime, size = await validate_upload(file)
-    key = f"attachments/{tenant_id}/{user.user_id}/{uuid4().hex}.{extension}"
+    key = f"attachments/{tenant_id}/{user.internal_user_id}/{uuid4().hex}.{extension}"
     try:
         # UUID key는 이 요청만 소유하므로 실패 시 해당 key만 보상 삭제한다.
         await run_in_threadpool(storage.put, key, file.file, mime, size)
-        attachment = Attachment(tenant_id=tenant_id, uploader_id=user.user_id, storage_key=key,
+        attachment = Attachment(tenant_id=tenant_id, uploader_id=user.internal_user_id, storage_key=key,
                                 file_name=name, mime=mime, size=size)
         session.add(attachment)
         await session.flush()
@@ -95,12 +96,12 @@ async def upload_attachment(
 
 
 async def get_attachment(
-    session: AsyncSession, *, user: AuthenticatedUser, attachment_id: int, storage: S3Storage,
+    session: AsyncSession, *, user: AuthenticatedUser, attachment_id: str, storage: S3Storage,
 ) -> AttachmentResponse:
     tenant_id = require_tenant(user)
-    statement = select(Attachment).where(Attachment.attachment_id == attachment_id, Attachment.tenant_id == tenant_id)
+    statement = select(Attachment).where(Attachment.public_id == attachment_id, Attachment.tenant_id == tenant_id)
     if user.role == UserRole.CUSTOMER:
-        statement = statement.where(Attachment.uploader_id == user.user_id)
+        statement = statement.where(Attachment.uploader_id == user.internal_user_id)
     else:
         # 담당자는 문의에 연결된 첨부만 조회한다. 타인의 임시 업로드는 보이지 않는다.
         statement = statement.join(Message, Message.message_id == Attachment.message_id).join(

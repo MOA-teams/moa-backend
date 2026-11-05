@@ -64,7 +64,7 @@ async def create_company(
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> TenantResponse:
     try:
-        tenant = await create_tenant(session, user_id=user.user_id, tenant_id=payload.tenant_id, name=payload.name)
+        tenant = await create_tenant(session, user_id=user.internal_user_id, tenant_id=payload.tenant_id, name=payload.name)
     except TenantError as error:
         raise tenant_api_error(error) from None
     return TenantResponse.model_validate(tenant)
@@ -97,7 +97,7 @@ async def join_company(
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> TenantResponse:
     try:
-        tenant = await join_tenant(session, user_id=user.user_id, tenant_id=payload.tenant_id)
+        tenant = await join_tenant(session, user_id=user.internal_user_id, tenant_id=payload.tenant_id)
     except TenantError as error:
         raise tenant_api_error(error) from None
     return TenantResponse.model_validate(tenant)
@@ -127,7 +127,7 @@ async def get_my_company(
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> TenantResponse:
     try:
-        tenant = await get_my_tenant(session, user_id=user.user_id)
+        tenant = await get_my_tenant(session, user_id=user.internal_user_id)
     except TenantError as error:
         raise tenant_api_error(error) from None
     return TenantResponse.model_validate(tenant)

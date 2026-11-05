@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import UserRole
@@ -35,7 +36,7 @@ async def get_user(
         claims = decode_access_token(credentials.credentials)
     except InvalidAccessTokenError:
         raise authentication_error() from None
-    user = await session.get(User, claims.user_id)
+    user = await session.scalar(select(User).where(User.public_id == claims.user_id))
     if user is None or user.role != claims.role:
         raise authentication_error()
     return AuthenticatedUser.model_validate(user)

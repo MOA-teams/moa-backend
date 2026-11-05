@@ -32,11 +32,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 - 가입 응답에는 토큰이 없습니다. 가입 후 로그인 API를 호출하세요.
 - 기업 연결은 로그인 후 기업 생성 또는 소속 연결 API에서 별도로 진행합니다.
 """,
-    response_description="생성된 계정의 숫자 ID·이메일·역할",
+    response_description="생성된 계정의 문자열 ID·이메일·역할",
     responses={
         **documented_errors("VALIDATION_ERROR", "EMAIL_ALREADY_EXISTS"),
         201: documented_success("계정 생성 완료. 자동 로그인은 수행하지 않습니다.", {
-            "created": {"summary": "고객 계정 생성", "value": {"user_id": 1, "email": "customer@example.com", "role": "customer"}},
+            "created": {"summary": "고객 계정 생성", "value": {"user_id": "U-2001", "email": "customer@example.com", "role": "customer"}},
         }),
     },
 )
@@ -133,8 +133,8 @@ async def refresh_user_tokens(
     responses={
         **documented_errors("INVALID_ACCESS_TOKEN", bearer_auth=True),
         200: documented_success("현재 계정 정보", {
-            "unassigned": {"summary": "기업 미소속", "value": {"user_id": 1, "email": "customer@example.com", "role": "customer", "tenant_id": None}},
-            "assigned": {"summary": "기업 소속", "value": {"user_id": 1, "email": "customer@example.com", "role": "customer", "tenant_id": "syncnote"}},
+            "unassigned": {"summary": "기업 미소속", "value": {"user_id": "U-2001", "email": "customer@example.com", "role": "customer", "tenant_id": None}},
+            "assigned": {"summary": "기업 소속", "value": {"user_id": "U-2001", "email": "customer@example.com", "role": "customer", "tenant_id": "syncnote"}},
         }),
     },
 )

@@ -47,7 +47,7 @@ OPENAPI_TAGS = [
     {"name": "tenants", "description": "기업 생성·본인 소속 연결·내 기업 조회. 사용자 한 명은 한 기업에만 소속됩니다."},
     {"name": "admin-inquiries", "description": "같은 기업 agent/admin 전용 목록·상세 조회. 내부 필드는 고객 채팅 응답과 분리합니다."},
     {"name": "inquiries", "description": "customer 전용 문의 접수·추가 메시지·cursor 폴링. 문의·메시지 저장에 Idempotency-Key가 필요합니다. AI 호출 없이 동작합니다."},
-    {"name": "attachments", "description": "기업·업로더 권한을 확인하는 비공개 S3 첨부. 업로드 후 숫자 ID를 문의에 연결하고, 다운로드 URL은 만료 시 재발급합니다."},
+    {"name": "attachments", "description": "기업·업로더 권한을 확인하는 비공개 S3 첨부. 업로드 후 문자열 ID를 문의에 연결하고, 다운로드 URL은 만료 시 재발급합니다."},
     {"name": "system", "description": "서버 응답 상태 확인. 헬스체크는 DB 연결 상태를 검사하지 않습니다."},
 ]
 

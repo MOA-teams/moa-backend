@@ -1,3 +1,4 @@
+from app.core.ids import public_id_default
 from datetime import datetime
 
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, Enum, ForeignKey, Identity, Index, Integer, String, Text, UniqueConstraint, func
@@ -11,6 +12,7 @@ category_type = Enum(InquiryCategory, name="inquiry_category", values_callable=l
 
 
 class Inquiry(BaseEntity):
+    public_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, default=public_id_default("inquiry"))
     __tablename__ = "inquiries"
     __table_args__ = (
         Index("ix_inquiries_tenant_created_id", "tenant_id", "created_at", "inquiry_id"),
@@ -38,6 +40,7 @@ class Inquiry(BaseEntity):
 
 
 class Message(BaseEntity):
+    public_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, default=public_id_default("message"))
     __tablename__ = "messages"
     __table_args__ = (
         UniqueConstraint("inquiry_id", "sequence", name="uq_messages_inquiry_sequence"),
