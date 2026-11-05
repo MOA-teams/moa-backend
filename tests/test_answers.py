@@ -621,3 +621,49 @@ async def test_answer_id_exhaustion_rolls_back_message_and_idempotency(
 async def test_answer_request_validation(client, agent, inquiry, changes):
     payload = body_from(await detail(client, agent, inquiry), **changes)
     assert (await send(client, agent, inquiry, payload)).status_code == 400
+
+
+async def test_chat_read_and_feedback_are_consistent(
+    client, customer, agent, inquiry, monkeypatch
+):
+    import app.services.answers as service
+
+    await send(client, agent, inquiry, body_from(await detail(client, agent, inquiry)))
+    await close(client, agent, inquiry, 2)
+    entered, release, done = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    original = service.feedback_state
+
+    async def delayed(session, row):
+        entered.set()
+        await release.wait()
+        return await original(session, row)
+
+    monkeypatch.setattr(service, "feedback_state", delayed)
+    reading = asyncio.create_task(
+        client.get(f"{CUSTOMER}/{inquiry['inquiry_id']}", headers=customer["headers"])
+    )
+    await asyncio.wait_for(entered.wait(), 3)
+
+    async def submit_rating():
+        response = await feedback(client, customer, inquiry, {"resolved": True})
+        done.set()
+        return response
+
+    writing = asyncio.create_task(submit_rating())
+    try:
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(done.wait()), 0.1)
+    finally:
+        release.set()
+    before = (await asyncio.wait_for(reading, 3)).json()
+    assert before["resolution_status"] == "미확인" and before["feedback"] is None
+    assert (await asyncio.wait_for(writing, 3)).status_code == 201
+    after = (
+        await client.get(
+            f"{CUSTOMER}/{inquiry['inquiry_id']}", headers=customer["headers"]
+        )
+    ).json()
+    assert (
+        after["resolution_status"] == "해결 확인"
+        and after["feedback"]["resolved"] is True
+    )
