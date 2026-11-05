@@ -29,7 +29,12 @@ app = FastAPI(
 install_error_handlers(app)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://moa-client.vercel.app",
+        "https://moa-admin-teal.vercel.app",
+    ],
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
