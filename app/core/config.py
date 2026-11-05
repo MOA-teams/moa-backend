@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from app.core.auto_response import AutoResponsePolicy, TenantID
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -24,6 +25,7 @@ class Settings(BaseSettings):
     ai_service_token: SecretStr | None = None
     ai_callback_token: SecretStr | None = None
     ai_pipeline_worker_enabled: bool = False
+    auto_response_policies: dict[TenantID, AutoResponsePolicy] = Field(default_factory=dict)
     aws_region: str | None = None
     s3_bucket_name: str | None = None
     s3_presigned_url_expire_seconds: int = Field(default=300, gt=0, le=3600)

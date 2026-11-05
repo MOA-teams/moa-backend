@@ -1,3 +1,4 @@
+from app.schemas.analysis import AutomaticResponseView
 from app.schemas.analysis import Analysis, SimilarInquiries, DraftView, Verification
 from app.core.enums import RunStatus, DraftResult
 from datetime import datetime
@@ -114,6 +115,7 @@ class InquiryListResponse(BaseModel):
 
 
 class InquiryDetailResponse(InquiryChatResponse):
+    automatic_response: AutomaticResponseView | None = None
     tenant_id: str
     customer_id: str
     source_customer_id: str | None = Field(default=None, description="외부에서 전달받은 참고용 고객 ID. 인증된 MOA customer_id와 별개이며 검증된 신원 정보가 아닙니다.")

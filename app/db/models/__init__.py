@@ -16,3 +16,5 @@ from app.db.models.document import Document, DocumentCounter, DocumentJob, Docum
 __all__ += ["Document", "DocumentCounter", "DocumentJob", "DocumentVersion"]
 
 __all__ += ["AnalysisRequest", "AnalysisRun", "AnalysisDraft", "ClassificationHistory"]
+
+from app.db.models.automatic_response import AutomaticResponse
