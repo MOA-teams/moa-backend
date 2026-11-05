@@ -25,7 +25,8 @@ async def record_review(session, *, tenant, kind, target, version, cause, source
         ReviewItem.tenant_id == tenant, ReviewItem.target_type == kind,
         ReviewItem.target_id == target, ReviewItem.target_version == version,
     ).with_for_update())
-    if row and cause in row.cause_keys:
+    if row and (cause in row.cause_keys or (source == "existing_state" and cause.startswith("document:"))):
+        # 이관 스캔은 이미 기록한 실제 push/문서 변경 원인과 담당자 결정을 덮어쓰지 않는다.
         return row
     if row is None:
         row = ReviewItem(tenant_id=tenant, target_type=kind, target_id=target, target_version=version,
