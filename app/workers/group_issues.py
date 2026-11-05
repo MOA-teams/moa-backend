@@ -94,6 +94,17 @@ async def process(factory, job_id, token, gateway):
         group, episode, job = await locked(session, job_id, token)
         if job is None:
             return
+        if job.phase == "prepare" and job.automatic:
+            # 연결 준비 여부와 무관하게 이미 끝난 장애의 미전송 자동 작업은 종료한다.
+            if episode.ended_at is None:
+                await evaluate(session, group)
+            if episode.ended_at:
+                job.phase, job.status, job.error_code = "done", "실패", "EPISODE_ENDED"
+                job.readiness_reason = None
+                release(job)
+                logger.info("issue_state_changed job_id=%s code=EPISODE_ENDED", job_id)
+                await session.commit()
+                return
         tenant, payload, phase = group.tenant_id, job.payload, job.phase
         await session.commit()
     ready = await gateway.ready(tenant)

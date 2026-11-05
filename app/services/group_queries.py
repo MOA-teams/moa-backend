@@ -79,7 +79,7 @@ async def view(session, group, now, count=None):
         "created_by": metadata.get("created_by"),
         "issue_code_candidates": candidates,
         "issue_job": {"attempts": job.attempts, "phase": job.phase, "lease_until": job.lease_until,
-                      "next_attempt_at": job.available_at if job.phase != "done" else None,
+                      "next_attempt_at": job.available_at if job.phase != "done" or (job.status == "완료" and job.issue_metadata is None) else None,
                       "readiness_reason": job.readiness_reason} if job else None,
     }
 
