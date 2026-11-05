@@ -161,3 +161,29 @@ async def test_malformed_commit_is_controlled_error(data):
     with pytest.raises(GitHubError) as error:
         commit_view(data)
     assert error.value.code == "GITHUB_INVALID_RESPONSE"
+
+
+async def test_policy_reduction_during_compare_never_persists_old_diff(client, admin, agent, github, session_factory):
+    await connect(client, admin, github)
+    history_http(github)
+    original = github.request
+    async def changed(method, path, *args, **kwargs):
+        response = await original(method, path, *args, **kwargs)
+        if "/compare/" in path:
+            async with session_factory() as s:
+                row = await s.scalar(select(GitHubIntegration))
+                row.security_level = 1
+                await s.commit()
+        return response
+    github.request = changed
+    await event(client, before="a" * 40)
+    await run_once(session_factory, github)
+    async with session_factory() as s:
+        event_row = await s.scalar(select(PushEvent))
+        assert event_row.changes == [] and event_row.status == "pending"
+        assert event_row.error_code == "GITHUB_POLICY_CHANGED"
+        event_row.available_at = utcnow()
+        await s.commit()
+    await run_once(session_factory, github)
+    async with session_factory() as s:
+        assert all(c["diff"] is None for c in (await s.scalar(select(PushEvent))).changes)
