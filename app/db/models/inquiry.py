@@ -1,7 +1,7 @@
 from app.core.ids import public_id_default
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, Enum, ForeignKey, Identity, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, BigInteger, CheckConstraint, DateTime, Enum, ForeignKey, Identity, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,9 @@ class Inquiry(BaseEntity):
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.tenant_id", ondelete="RESTRICT"), nullable=False)
     customer_id: Mapped[int] = mapped_column(ForeignKey("users.user_id", ondelete="RESTRICT"), nullable=False)
     source_customer_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    latest_analysis_request_id: Mapped[str | None] = mapped_column(String(36))
+    classification_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    processing_stage: Mapped[str | None] = mapped_column(String(100))
     title: Mapped[str] = mapped_column(String(100), nullable=False)
     customer_category: Mapped[InquiryCategory] = mapped_column(category_type, nullable=False)
     env: Mapped[dict] = mapped_column(JSONB, nullable=False)

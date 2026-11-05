@@ -41,3 +41,21 @@ class MessageType(str, Enum):
     ACKNOWLEDGEMENT = "접수 안내"
     INFORMATION_REQUEST = "정보 수집 질문"
     FINAL_ANSWER = "최종 답변"
+
+
+class RunStatus(str, Enum):
+    PENDING = "대기"
+    RUNNING = "처리 중"
+    COMPLETED = "완료"
+    FAILED = "실패"
+
+class DraftResult(str, Enum):
+    READY = "초안 가능"
+    MANUAL = "직접 확인 필요"
+    NEED_INFO = "추가 질문 필요"
+
+class CheckStatus(str, Enum):
+    PASS = "통과"
+    FAIL = "실패"
+    UNKNOWN = "확인 불가"
+    SKIPPED = "미실행"
