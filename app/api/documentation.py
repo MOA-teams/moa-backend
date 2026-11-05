@@ -34,6 +34,7 @@ MOA 프론트엔드 연동을 위한 인증·기업 소속 API입니다.
 OPENAPI_TAGS = [
     {"name": "auth", "description": "회원가입·로그인·토큰 갱신·내 정보 조회. 고객·담당자·관리자 모두 같은 인증 흐름을 사용합니다."},
     {"name": "tenants", "description": "기업 생성·본인 소속 연결·내 기업 조회. 사용자 한 명은 한 기업에만 소속됩니다."},
+    {"name": "inquiries", "description": "customer 전용 문의 접수·추가 메시지·cursor 폴링. 문의·메시지 저장에 Idempotency-Key가 필요합니다. AI 호출 없이 동작합니다."},
     {"name": "attachments", "description": "기업·업로더 권한을 확인하는 비공개 S3 첨부. 업로드 후 숫자 ID를 문의에 연결하고, 다운로드 URL은 만료 시 재발급합니다."},
     {"name": "system", "description": "서버 응답 상태 확인. 헬스체크는 DB 연결 상태를 검사하지 않습니다."},
 ]
@@ -54,6 +55,11 @@ TOKEN_EXAMPLE = {"access_token": "eyJhbGciOiJIUzI1NiJ9.example.signature", "refr
 TENANT_EXAMPLE = {"tenant_id": "syncnote", "name": "싱크노트"}
 
 ERROR_DOCUMENTATION = {
+    "IDEMPOTENCY_CONFLICT": (409, "같은 Idempotency-Key로 다른 요청을 보낼 수 없습니다.", "중복 키의 요청 본문 불일치"),
+    "ATTACHMENT_ALREADY_LINKED": (409, "이미 메시지에 연결된 첨부입니다.", "이미 사용 중인 첨부"),
+    "INQUIRY_NOT_FOUND": (404, "문의를 찾을 수 없습니다.", "문의 없음 또는 다른 기업·고객의 문의"),
+    "INQUIRY_CLOSED": (409, "종료된 문의에는 메시지를 추가할 수 없습니다. 새 문의를 생성해 주세요.", "종료된 상담에 메시지 추가"),
+    "INVALID_CURSOR": (400, "유효한 조회 cursor가 필요합니다.", "cursor 변조·조회 대상·필터 불일치"),
     "INVALID_FILE": (400, "파일 이름 또는 내용이 올바르지 않습니다.", "빈 파일·잘못된 파일명"),
     "FILE_TOO_LARGE": (413, "파일은 10MiB 이하여야 합니다.", "파일 용량 초과"),
     "UNSUPPORTED_FILE_TYPE": (415, "PNG, JPEG, PDF 파일만 업로드할 수 있습니다.", "확장자·MIME·파일 시그니처 불일치"),
