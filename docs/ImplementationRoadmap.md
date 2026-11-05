@@ -10,6 +10,14 @@
 - 격리 PostgreSQL 전체 pytest **583개 통과**. 설정·점검·복구 절차는 [LLM 운영 안내](LLMOperations.md)를 따른다.
 - main 병합 후 실제 시드 문서·RAG 초안·GitHub 연결·데모 반복/복구 검증을 이어간다. 9단계 그룹·급증·Issue는 별도 담당자 작업이며 아직 전체 10단계 완료로 표시하지 않는다.
 
+## 10단계 후속 통합 검증
+
+- LLM 선행 수정 PR #12는 main `a786261`에 병합·배포 완료했다. 후속 검증은 `feat/demo-verification`에서 분리한다.
+- 승인된 별도 기업 `syncnotedemo`에 문서 원본 12개·최신 11개를 등록하고 실제 검색 가능을 확인했다. 요금 변경의 이전 버전 제외·`409 STALE_KNOWLEDGE`·새 버전으로 원래 요금 복구도 확인했다.
+- 공개 API 기반 문서 시드와 초안→발송→종료→평가 재현 도구를 추가한다. 원본 대응표·멱등키·중단 재개를 보존하며 기존 서비스·스키마·9단계 코드는 변경하지 않는다.
+- 실제 요금제 문의는 AI 검색 점수·순위 문제로 초안 생성이 중단됐다. 검색 임계값을 임의로 낮추거나 근거 검사를 우회하지 않는다. GitHub App 미설정·9단계 진행 중·과거 답변/우수 답변 import 계약도 남아 있다. 완료/미완료 구분과 재현은 [통합 검증 기록](DemoVerification.md)을 따른다.
+- 격리 PostgreSQL 전체 pytest **600개 통과**(신규 도구 17개, skip 없음). AI 담당자용 [검색 실패 재현 자료](AISearchReproduction.md)를 제공한다.
+
 ## 8단계 구현 기준
 
 - `origin/main`의 `961f189`에서 `feat/github-integration`으로 분기한다. H01~H03, GitHub App 사용자 인증·선택 API, 별도 PostgreSQL lease worker를 구현한다.
