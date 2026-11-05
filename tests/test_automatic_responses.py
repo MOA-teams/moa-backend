@@ -22,6 +22,7 @@ from app.db.models import (
     DocumentVersion,
 )
 from app.services import automatic_responses as service
+from app.services import answers as answer_service
 from app.workers.analysis import run_once
 from test_documents import rag, create, drain  # noqa: F401
 from test_pipeline import ai, submit, callback_headers, ADMIN, CALLBACK, due  # noqa: F401
@@ -319,7 +320,9 @@ async def test_knowledge_checks(
         if mode == "changed":
             await s.execute(update(DocumentVersion).values(source_revision=2))
         if mode == "old_request":
-            await s.execute(update(AnalysisRequest).values(knowledge_snapshot=None))
+            await s.execute(
+                update(AnalysisRequest).values(backend_knowledge_revision=None)
+            )
         await s.commit()
     if mode == "remote_unavailable":
         rag.fail_view = True
@@ -414,20 +417,20 @@ async def test_existing_reply_blocks_new_auto_delivery(
 async def test_transaction_failure_rolls_back_message_and_result(
     client, session_factory, auto_case, monkeypatch
 ):
-    original = service.persist_customer_message
+    original = answer_service.persist_answer
 
     async def broken(*args, **kwargs):
         await original(*args, **kwargs)
         raise RuntimeError("injected-after-write")
 
-    monkeypatch.setattr(service, "persist_customer_message", broken)
+    monkeypatch.setattr(answer_service, "persist_answer", broken)
     with pytest.raises(RuntimeError):
         await deliver(client, auto_case)
     async with session_factory() as s:
         assert await s.scalar(select(func.count()).select_from(Message)) == 2
         assert await s.scalar(select(func.count()).select_from(AutomaticResponse)) == 0
         assert (await s.get(AnalysisRun, auto_case[1])).result_hash is None
-    monkeypatch.setattr(service, "persist_customer_message", original)
+    monkeypatch.setattr(answer_service, "persist_answer", original)
     assert (await deliver(client, auto_case)).json()[
         "delivery_action"
     ] == "자동 답변 전송"
@@ -673,7 +676,7 @@ async def test_new_uncited_document_invalidates_knowledge_snapshot(
     await assert_review(client, agent, session_factory, auto_case, "KNOWLEDGE_CHANGED")
 
 
-async def test_two_inquiries_share_document_locks_without_deadlock(
+async def test_two_inquiries_serialize_knowledge_checks_without_deadlock(
     client, customer, session_factory, auto_case, ai, rag, monkeypatch
 ):
     async with session_factory() as s:
@@ -705,21 +708,27 @@ async def test_two_inquiries_share_document_locks_without_deadlock(
         },
     )
     second_case = (second.json()["inquiry_id"], run, body)
-    original, arrived, count = rag.view, asyncio.Event(), 0
+    original, entered, release, count = rag.view, asyncio.Event(), asyncio.Event(), 0
 
-    async def simultaneous(*args):
+    async def serialized(*args):
         nonlocal count
         result = await original(*args)
         count += 1
-        if count == 2:
-            arrived.set()
-        await asyncio.wait_for(arrived.wait(), 5)
+        if count == 1:
+            entered.set()
+            await release.wait()
         return result
 
-    monkeypatch.setattr(rag, "view", simultaneous)
-    results = await asyncio.wait_for(
-        asyncio.gather(deliver(client, auto_case), deliver(client, second_case)), 10
-    )
+    monkeypatch.setattr(rag, "view", serialized)
+    first_task = asyncio.create_task(deliver(client, auto_case))
+    await asyncio.wait_for(entered.wait(), 5)
+    second_task = asyncio.create_task(deliver(client, second_case))
+    try:
+        await asyncio.sleep(0.05)
+        assert count == 1 and not second_task.done()
+    finally:
+        release.set()
+    results = await asyncio.wait_for(asyncio.gather(first_task, second_task), 10)
     assert all(
         r.status_code == 200 and r.json()["delivery_action"] == "자동 답변 전송"
         for r in results
