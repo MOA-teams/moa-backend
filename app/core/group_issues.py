@@ -3,6 +3,7 @@
 import asyncio
 from dataclasses import dataclass, field
 import re
+from datetime import datetime
 
 import httpx
 
@@ -29,6 +30,8 @@ class VerifiedIssueTarget:
 class HttpIssueGateway:
     def __init__(self, targets: dict[str, VerifiedIssueTarget], *, transport=None):
         self.targets, self.transport = targets, transport
+        self.last_issue = None
+        self.readiness_reason = None
         for target in targets.values():
             if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", target.repository):
                 raise ValueError("검증된 GitHub 저장소 경로가 필요합니다.")
@@ -111,6 +114,16 @@ class HttpIssueGateway:
         )
         if type(number) is not int or number < 1 or row.get("html_url") != expected:
             raise IssueError("GITHUB_INVALID_RESPONSE", uncertain=True)
+        created = row.get("created_at")
+        if created is not None:
+            try:
+                if datetime.fromisoformat(created.replace("Z", "+00:00")).utcoffset() is None:
+                    raise ValueError
+            except (ValueError, TypeError, AttributeError):
+                raise IssueError("GITHUB_INVALID_RESPONSE", uncertain=True) from None
+        title = row.get("title")
+        self.last_issue = {"number": number, "title": title[:500] if isinstance(title, str) else None,
+                           "created_at": created}
         return expected
 
     async def find(self, tenant, marker):

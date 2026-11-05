@@ -9,6 +9,7 @@ from sqlalchemy import or_, select
 from app.core.group_issues import IssueError, get_issue_gateway
 from app.db.models import InquiryGroup, IssueJob, SurgeEpisode
 from app.services.alerts import notify
+from app.services.github_security import sanitize
 from app.services.groups import (
     THRESHOLD,
     effective_category,
@@ -26,7 +27,7 @@ async def claim(factory):
         job = await session.scalar(
             select(IssueJob)
             .where(
-                IssueJob.phase != "done",
+                or_(IssueJob.phase != "done", (IssueJob.status == "완료") & IssueJob.issue_metadata.is_(None)),
                 IssueJob.available_at <= utcnow(),
                 or_(IssueJob.lease_until.is_(None), IssueJob.lease_until < utcnow()),
             )
@@ -60,7 +61,7 @@ async def locked(session, job_id, token):
     )
     return (
         (group, episode, job)
-        if job.lease_token == token and job.phase != "done"
+        if job.lease_token == token and (job.phase != "done" or (job.status == "완료" and job.issue_metadata is None))
         else (group, episode, None)
     )
 
@@ -100,7 +101,12 @@ async def process(factory, job_id, token, gateway):
         if job is None:
             return
         if not ready:
-            job.status, job.error_code = "대기", "GITHUB_INTEGRATION_NOT_READY"
+            reason = getattr(gateway, "readiness_reason", None) or "GITHUB_INTEGRATION_NOT_READY"
+            if job.readiness_reason != reason:
+                logger.warning("issue_readiness_changed job_id=%s code=%s", job_id, reason)
+            job.readiness_reason = reason
+            if phase != "done":
+                job.status, job.error_code = "대기", "GITHUB_INTEGRATION_NOT_READY"
             release(job, 30)
             await session.commit()
             return
@@ -125,8 +131,10 @@ async def process(factory, job_id, token, gateway):
                     release(job, 5)
                 await session.commit()
                 return
-        job.status, job.error_code = "처리 중", None
-        job.attempts += 1
+        job.readiness_reason = None
+        if phase != "done":
+            job.status, job.error_code = "처리 중", None
+            job.attempts += 1
         await session.commit()
     try:
         prepared = await gateway.prepare(tenant, payload)
@@ -144,6 +152,17 @@ async def process(factory, job_id, token, gateway):
             payload = prepared
             await session.commit()
         url = await gateway.find(tenant, payload["marker"])
+        if phase == "done":
+            async with factory() as session:
+                _, _, job = await locked(session, job_id, token)
+                if job:
+                    if url and url == job.issue_url:
+                        job.issue_metadata = metadata(gateway, payload)
+                    else:
+                        job.readiness_reason = "GITHUB_METADATA_UNAVAILABLE"
+                    release(job, 300)
+                    await session.commit()
+            return
         if url is None and phase == "reconcile":
             async with factory() as session:
                 group, _, job = await locked(session, job_id, token)
@@ -171,6 +190,8 @@ async def process(factory, job_id, token, gateway):
                         await session.commit()
                         return
                 # 전송 의도 상태를 커밋한 뒤에만 POST. crash/lease 만료 후 다른 워커는 조회만 한다.
+                job.payload = {**job.payload, "creation_mode": "자동" if job.automatic else "수동"}
+                payload = job.payload
                 job.phase = "reconcile"
                 await session.commit()
             url = await gateway.create(tenant, payload)
@@ -183,12 +204,19 @@ async def process(factory, job_id, token, gateway):
                     None,
                     "done",
                 )
+                job.issue_metadata = metadata(gateway, payload)
+                logger.info("issue_state_changed job_id=%s code=COMPLETED", job_id)
                 release(job)
                 await session.commit()
     except IssueError as error:
         async with factory() as session:
             group, _, job = await locked(session, job_id, token)
             if job is None:
+                return
+            if phase == "done":
+                job.readiness_reason = error.code
+                release(job, 300)
+                await session.commit()
                 return
             if error.uncertain:
                 job.phase, job.status, job.error_code = (
@@ -223,3 +251,10 @@ async def run_once(factory, gateway=None):
         # POST가 시작됐을 수 있다. lease 만료 후 reconcile로 복구하며 원문 예외를 노출하지 않는다.
         logger.error("issue_worker_failed job_id=%s", item[0])
     return True
+
+
+def metadata(gateway, payload):
+    result = dict(getattr(gateway, "last_issue", None) or {})
+    if result.get("title"):
+        result["title"] = sanitize(result["title"], "issue_title")[0]
+    return {**result, "created_by": payload.get("creation_mode"), "code_candidates": payload.get("code_candidates", [])}
