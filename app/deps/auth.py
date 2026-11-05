@@ -12,7 +12,10 @@ from app.db.models import User
 from app.deps.db import get_db
 from app.schemas.auth import AuthenticatedUser
 
-bearer = HTTPBearer(auto_error=False)
+bearer = HTTPBearer(
+    auto_error=False, bearerFormat="JWT",
+    description="로그인 응답의 access_token 값만 입력하세요. Swagger가 Bearer 접두어를 붙입니다. refresh_token은 /api/v1/auth/refresh의 JSON 본문에 사용합니다.",
+)
 
 
 def authentication_error() -> APIError:
