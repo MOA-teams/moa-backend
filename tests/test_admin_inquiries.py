@@ -95,7 +95,15 @@ async def test_swagger_and_idempotency_cors(client):
     })
     assert response.status_code == 200
     spec = (await client.get("/openapi.json")).json()
-    assert len(spec["paths"]) == 20
+    assert len(spec["paths"]) == 23
+    for path in (
+        "/api/v1/inquiries/{inquiry_id}/session-events",
+        "/api/v1/inquiries/{inquiry_id}/read",
+        "/api/v1/admin/inquiries/{inquiry_id}/read",
+    ):
+        operation = spec["paths"][path]["post"]
+        assert operation["security"] and "200" in operation["responses"]
+        assert not any(parameter["name"] == "Idempotency-Key" for parameter in operation.get("parameters", []))
     assert spec["components"]["schemas"]["InquiryStatus"]["enum"] == ["접수", "담당자 확인 중", "추가 정보 필요", "답변 완료", "상담 종료"]
     assert {"post", "get"} <= spec["paths"]["/api/v1/admin/documents"].keys()
     assert "patch" in spec["paths"]["/api/v1/admin/documents/{doc_id}/versions/{version}/status"]
