@@ -9,3 +9,6 @@ router.include_router(attachments.router)
 router.include_router(inquiries.router)
 router.include_router(admin_inquiries.router)
 router.include_router(documents.router)
+
+from app.api.v1 import groups
+router.include_router(groups.router)

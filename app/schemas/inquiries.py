@@ -112,7 +112,7 @@ class InquirySummary(BaseModel):
     status: InquiryStatus
     created_at: datetime
     processing_stage: str | None = None
-    group_id: None = Field(default=None, description="9단계 그룹 연동 전 null")
+    group_id: str | None = Field(default=None, description="확정된 그룹 ID. 미분석·충돌 보류 시 null", pattern=r"^G-[0-9]{3}$")
 
 
 class InquiryListResponse(BaseModel):
@@ -147,6 +147,6 @@ class InquiryDetailResponse(InquiryChatResponse):
     similar_inquiries: SimilarInquiries | None = None
     knowledge_revision: int | None = None
     draft_result: DraftResult | None = None
-    group_id: None = None
+    group_id: str | None = None
     draft: DraftView | None = None
     verification: Verification | None = None

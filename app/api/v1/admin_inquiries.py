@@ -46,7 +46,7 @@ async def listing(
 source_customer_id는 싱크노트 등 외부에서 전달받은 참고용 식별 문자열이며, 실제 인증 고객은 customer_id입니다.
 기존 문의 또는 외부 ID 없이 접수한 문의의 source_customer_id는 null입니다. 이 필드는 담당자 상세에만 제공합니다.
 메시지는 고객 조회와 같은 cursor 규칙이며 최초 생략, 이후 next_cursor로 폴링합니다.
-분석 요청·run 상태·최신 유효 초안·검수 결과를 제공합니다. 새 메시지나 수동 수정으로 오래된 초안은 현재 초안에 표시하지 않습니다. 그룹 확정은 후속 단계입니다. 조회만으로 상태를 변경하지 않습니다.
+분석 요청·run 상태·최신 유효 초안·검수 결과를 제공합니다. 새 메시지나 수동 수정으로 오래된 초안은 현재 초안에 표시하지 않습니다. group_id는 백엔드가 확정한 현재 그룹이며 미분석·충돌 시 null입니다. 조회만으로 상태를 변경하지 않습니다.
 첨부 다운로드는 각 attachment_id로 /attachments/{id}를 호출합니다.""",
     responses=documented_errors(*ERRORS, "INQUIRY_NOT_FOUND", bearer_auth=True),
 )

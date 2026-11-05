@@ -65,11 +65,14 @@ def release(job, delay=0):
     job.available_at = utcnow() + timedelta(seconds=delay)
 
 
-def fail(inquiry, job, code):
+async def fail(session, inquiry, job, code):
     job.phase, job.run_status, job.error_code = "failed", RunStatus.FAILED, code
     release(job)
     if current_request(inquiry, job):
         inquiry.processing_stage = "검토 대기"
+        from app.services.alerts import notify
+        await notify(session, tenant=inquiry.tenant_id, cause=f"analysis:{job.request_id}", kind="분석 실패",
+                     inquiry_id=inquiry.public_id, run_id=job.run_id, code=code)
 
 
 async def process(factory, request_id, token, client):
@@ -83,13 +86,13 @@ async def process(factory, request_id, token, client):
             await session.commit()
             return
         if job.deadline and job.deadline <= utcnow():
-            fail(inquiry, job, "AI_ANALYSIS_TIMEOUT")
+            await fail(session, inquiry, job, "AI_ANALYSIS_TIMEOUT")
             await session.commit()
             return
         phase, snapshot, run_id = job.phase, job.snapshot, job.run_id
         if phase == "submit":
             if job.attempts >= 5:
-                fail(inquiry, job, "AI_RETRY_EXHAUSTED")
+                await fail(session, inquiry, job, "AI_RETRY_EXHAUSTED")
                 await session.commit()
                 return
             job.attempts += 1
@@ -125,7 +128,7 @@ async def process(factory, request_id, token, client):
                 job.error_code = error.code
                 release(job, 5 if phase == "poll" else min(2**job.attempts, 30))
             else:
-                fail(inquiry, job, error.code)
+                await fail(session, inquiry, job, error.code)
             await session.commit()
         return
     async with factory() as session:
@@ -135,7 +138,7 @@ async def process(factory, request_id, token, client):
         if phase == "submit":
             existing = await session.get(AnalysisRun, value.run_id)
             if existing and existing.request_id != job.request_id:
-                fail(inquiry, job, "AI_RUN_ID_CONFLICT")
+                await fail(session, inquiry, job, "AI_RUN_ID_CONFLICT")
                 await session.commit()
                 return
             if existing is None:
@@ -150,13 +153,13 @@ async def process(factory, request_id, token, client):
             await session.commit()
             return
         if value.run_id != job.run_id:
-            fail(inquiry, job, "AI_INVALID_RESPONSE")
+            await fail(session, inquiry, job, "AI_INVALID_RESPONSE")
             await session.commit()
             return
         try:
             validate_identity(inquiry, job, value)
         except APIError:
-            fail(inquiry, job, "AI_INVALID_RESPONSE")
+            await fail(session, inquiry, job, "AI_INVALID_RESPONSE")
             await session.commit()
             return
         if value.run_status in (RunStatus.COMPLETED, RunStatus.FAILED):
@@ -189,7 +192,7 @@ async def run_once(factory, client):
         async with factory() as session:
             inquiry, job = await locked(session, request_id)
             if owns(job, token):
-                fail(inquiry, job, "AI_WORKER_ERROR")
+                await fail(session, inquiry, job, "AI_WORKER_ERROR")
                 await session.commit()
     return True
 
