@@ -667,3 +667,42 @@ async def test_chat_read_and_feedback_are_consistent(
         after["resolution_status"] == "해결 확인"
         and after["feedback"]["resolved"] is True
     )
+
+
+async def test_concurrent_inquiry_creation_keeps_tenant_foreign_keys_compatible(
+    client, customer, monkeypatch
+):
+    import app.services.inquiries as service
+
+    original = service.enqueue_analysis
+    both_inserted = asyncio.Event()
+    arrived = 0
+
+    async def synchronized_enqueue(session, inquiry, **kwargs):
+        nonlocal arrived
+        # 두 트랜잭션 모두 tenant 외래키의 KEY SHARE를 가진 상태로 진입한다.
+        arrived += 1
+        if arrived == 2:
+            both_inserted.set()
+        await asyncio.wait_for(both_inserted.wait(), 3)
+        return await original(session, inquiry, **kwargs)
+
+    monkeypatch.setattr(service, "enqueue_analysis", synchronized_enqueue)
+    responses = await asyncio.wait_for(
+        asyncio.gather(
+            *[
+                client.post(
+                    CUSTOMER,
+                    headers={
+                        **customer["headers"],
+                        "Idempotency-Key": f"concurrent-{i}",
+                    },
+                    json={"message": f"동시 문의 {i}"},
+                )
+                for i in range(2)
+            ]
+        ),
+        5,
+    )
+    assert all(response.status_code == 201 for response in responses)
+    assert len({response.json()["inquiry_id"] for response in responses}) == 2
