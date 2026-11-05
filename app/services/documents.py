@@ -63,6 +63,8 @@ async def begin_request(session, user, key, payload):
 
 
 async def new_document(session, tenant_id):
+    from app.services.knowledge import lock_knowledge
+    await lock_knowledge(session, tenant_id)
     await session.execute(insert(DocumentCounter).values(tenant_id=tenant_id).on_conflict_do_nothing())
     counter = await session.scalar(select(DocumentCounter).where(DocumentCounter.tenant_id == tenant_id).with_for_update())
     if counter.last_number >= 999:

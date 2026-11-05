@@ -110,6 +110,8 @@ async def enqueue_analysis(session, inquiry, *, review_only=False):
     by_message = {}
     for mid, aid in files:
         by_message.setdefault(mid, []).append(aid)
+    from app.db.models import Answer
+    answer_ids = dict((await session.execute(select(Answer.message_id, Answer.public_id).where(Answer.inquiry_id == inquiry.inquiry_id))).all())
     snapshot = {
         "tenant_id": inquiry.tenant_id,
         "inquiry_id": inquiry.public_id,
@@ -123,13 +125,17 @@ async def enqueue_analysis(session, inquiry, *, review_only=False):
                 "text": m.text,
                 "sent_at": m.sent_at.isoformat(),
                 "attachments": by_message.get(m.message_id, []),
+                **({"answer_id": answer_ids[m.message_id]} if m.message_id in answer_ids else {}),
             }
             for m in messages
         ],
         "env": inquiry.env,
         "review_only": review_only,
     }
+    from app.services.knowledge import lock_knowledge
+    knowledge = await lock_knowledge(session, inquiry.tenant_id)
     request = AnalysisRequest(
+        backend_knowledge_revision=knowledge.knowledge_revision,
         inquiry_id=inquiry.inquiry_id,
         inquiry_revision=inquiry.revision,
         based_on_message_id=customer.message_id,
@@ -265,6 +271,8 @@ async def evidence_review(session, inquiry, result):
     from app.db.models import Document, DocumentVersion
     from app.core.enums import DocStatus
 
+    from app.services.knowledge import lock_knowledge
+    await lock_knowledge(session, inquiry.tenant_id)
     reasons = []
     references = {(e.doc_id, e.version) for e in result.draft.evidence.docs}
     references.update(
