@@ -5,7 +5,6 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.auto_response import REQUIRED_CHECKS, safe_answer, safe_question
-from app.core.config import get_settings
 from app.core.enums import (
     CheckStatus,
     DocStatus,
@@ -30,6 +29,7 @@ from app.db.models import (
 )
 from app.schemas.answers import AnswerRequest
 from app.services.knowledge import lock_knowledge
+from app.services.response_settings import resolve_policy
 
 
 def document_stamp(document, version):
@@ -87,7 +87,7 @@ async def current_evidence(session, inquiry, request, result, policy):
     checked = {}
     rag = get_rag_client()
     for doc_id, version in sorted(refs):
-        if policy.public_documents.get(doc_id) != version:
+        if not policy.allow_current_public_documents and policy.public_documents.get(doc_id) != version:
             return "DOCUMENT_NOT_ALLOWLISTED", checked
         document = await session.scalar(
             select(Document)
@@ -144,6 +144,8 @@ def answer_block_reason(inquiry, request, result, draft, policy):
     if not policy.answers_enabled:
         return "AUTO_ANSWER_DISABLED"
     if result.draft_result != DraftResult.READY or draft is None:
+        return "HUMAN_REVIEW_REQUIRED"
+    if result.routing is not None and (result.routing.team != "CS" or result.routing.requires_human):
         return "HUMAN_REVIEW_REQUIRED"
     if (
         result.analysis.category not in policy.categories
@@ -230,7 +232,23 @@ async def persist_automatic_answer(
 
 
 async def handle_automatic_response(session, inquiry, request, run, result, draft):
-    policy = get_settings().auto_response_policies.get(inquiry.tenant_id)
+    await lock_knowledge(session, inquiry.tenant_id)
+    policy = await resolve_policy(session, inquiry.tenant_id)
+    previous_questions = list((await session.scalars(
+        select(Message.text).where(
+            Message.inquiry_id == inquiry.inquiry_id,
+            Message.message_type == MessageType.INFORMATION_REQUEST,
+        ).order_by(Message.sequence)
+    )).all())
+    collection = {
+        "status": "질문 필요" if result.draft_result == DraftResult.NEED_INFO else "정보 충분",
+        "questions_sent": len(previous_questions),
+        "max_questions": policy.max_questions if policy else 2,
+        "missing_fields": result.analysis.missing_fields if result.analysis else [],
+        "handoff_required": False,
+        "handoff_reason": None,
+        "stage": ("followup" if previous_questions else "initial") if result.draft_result == DraftResult.NEED_INFO else "sufficient",
+    }
     decision = AutomaticResponse(
         run_id=run.run_id,
         inquiry_id=inquiry.inquiry_id,
@@ -246,6 +264,7 @@ async def handle_automatic_response(session, inquiry, request, run, result, draf
             "draft_revision": draft.revision if draft else None,
             "delivery_mode": "자동",
             "agent_id": None,
+            "information_collection": collection,
         },
     )
     reason, text, kind = None, None, None
@@ -276,25 +295,16 @@ async def handle_automatic_response(session, inquiry, request, run, result, draf
                 reason = "AUTO_QUESTION_DISABLED"
             else:
                 text = safe_question(result.analysis.missing_fields)
-                previous = list(
-                    (
-                        await session.scalars(
-                            select(Message.text).where(
-                                Message.inquiry_id == inquiry.inquiry_id,
-                                Message.message_type == MessageType.INFORMATION_REQUEST,
-                            )
-                        )
-                    ).all()
-                )
                 if text is None:
                     reason = "QUESTION_FIELD_NOT_ALLOWED"
-                elif len(previous) >= policy.max_questions:
+                elif len(previous_questions) >= policy.max_questions:
                     reason = "QUESTION_LIMIT_REACHED"
-                elif any(
-                    set(text.splitlines()) & set(p.splitlines()) for p in previous
-                ):
-                    reason = "REPEATED_QUESTION"
                 else:
+                    # A new customer reply may still lack the same detail. Allow one
+                    # further clarification within max_questions; do not hand off just
+                    # because part of the question overlaps an earlier question.
+                    if text in previous_questions:
+                        text = "조금 더 확인할게요.\n" + text
                     kind = MessageType.INFORMATION_REQUEST
         else:
             reason = answer_block_reason(inquiry, request, result, draft, policy)
@@ -345,9 +355,25 @@ async def handle_automatic_response(session, inquiry, request, run, result, draf
                 if kind == MessageType.INFORMATION_REQUEST
                 else "자동 답변 전송"
             )
+            if kind == MessageType.INFORMATION_REQUEST:
+                collection.update(status="고객 응답 대기", questions_sent=len(previous_questions) + 1)
     if reason:
         decision.review_reasons = [reason]
         inquiry.processing_stage = "검토 대기"
+        if reason in {"AUTO_RESPONSE_DISABLED", "AUTO_QUESTION_DISABLED"} and result.draft_result == DraftResult.NEED_INFO:
+            collection["status"] = "자동 질문 꺼짐"
+        elif reason == "QUESTION_LIMIT_REACHED":
+            collection.update(status="질문 한도 도달", stage="exhausted", handoff_required=True, handoff_reason=reason)
+        elif reason == "REPEATED_QUESTION":
+            collection.update(status="추가 답변 후에도 정보 부족", handoff_required=True, handoff_reason=reason)
+        elif reason == "CUSTOMER_MESSAGE_ALREADY_RESPONDED" and result.draft_result == DraftResult.NEED_INFO:
+            collection["status"] = "고객 응답 대기"
+        elif reason == "HUMAN_REVIEW_REQUIRED":
+            collection.update(status="담당자 확인 필요", handoff_required=True, handoff_reason=reason)
+        elif reason not in {"REVIEW_ONLY", "AUTO_ANSWER_DISABLED"}:
+            collection.update(status="검증 또는 발송 확인 필요", handoff_required=True, handoff_reason=reason)
+    # JSON changes must be assigned anew for SQLAlchemy's change tracking.
+    decision.validation = {**decision.validation, "information_collection": collection}
     session.add(decision)
     await session.flush()
     return decision
@@ -372,4 +398,5 @@ async def response_view(session, decision):
         "requires_review": bool(decision.review_reasons),
         "delivery_mode": "자동" if message else None,
         "agent_id": None,
+        "information_collection": decision.validation.get("information_collection"),
     }

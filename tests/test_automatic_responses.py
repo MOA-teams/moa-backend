@@ -175,6 +175,12 @@ async def test_safe_question_ignores_unreviewed_llm_text_and_next_customer_resta
     assert message["message_type"] == "정보 수집 질문"
     assert message["text"] == "어떤 화면에서 문제가 발생했나요?"
     assert "unsafe" not in json.dumps(chat)
+    async with session_factory() as session:
+        decision = await session.get(AutomaticResponse, auto_case[1])
+        info = decision.validation["information_collection"]
+        assert info["status"] == "고객 응답 대기"
+        assert info["questions_sent"] == 1
+        assert not info["handoff_required"]
     response = await client.post(
         f"/api/v1/inquiries/{auto_case[0]}/messages",
         headers={**customer["headers"], "Idempotency-Key": "reply"},
@@ -515,7 +521,7 @@ async def next_question(client, customer, session_factory, ai, case, field):
 
 @pytest.mark.parametrize(
     "mode,reason",
-    [("repeat", "REPEATED_QUESTION"), ("limit", "QUESTION_LIMIT_REACHED")],
+    [("repeat", "QUESTION_LIMIT_REACHED"), ("limit", "QUESTION_LIMIT_REACHED")],
 )
 async def test_question_loop_is_bounded(
     client, agent, customer, session_factory, auto_case, ai, mode, reason
@@ -531,13 +537,14 @@ async def test_question_loop_is_bounded(
         auto_case,
         "발생 화면" if mode == "repeat" else "앱 버전",
     )
-    if mode == "limit":
-        assert (await deliver(client, new_case)).json()[
-            "delivery_action"
-        ] == "추가 질문 전송"
-        new_case = await next_question(
-            client, customer, session_factory, ai, new_case, "오류 코드"
-        )
+    assert (await deliver(client, new_case)).json()[
+        "delivery_action"
+    ] == "추가 질문 전송"
+    detail = (await client.get(f"{ADMIN}/{auto_case[0]}", headers=agent["headers"])).json()
+    assert not detail["automatic_response"]["information_collection"]["handoff_required"]
+    new_case = await next_question(
+        client, customer, session_factory, ai, new_case, "발생 화면" if mode == "repeat" else "오류 코드"
+    )
     response = await deliver(client, new_case)
     assert (
         response.status_code == 200
@@ -547,12 +554,17 @@ async def test_question_loop_is_bounded(
         await client.get(f"{ADMIN}/{auto_case[0]}", headers=agent["headers"])
     ).json()
     assert detail["automatic_response"]["review_reasons"] == [reason]
+    info = detail["automatic_response"]["information_collection"]
+    assert info["questions_sent"] == 2
+    assert info["handoff_required"] and info["handoff_reason"] == reason
+    assert info["status"] == "질문 한도 도달"
+    assert info["stage"] == "exhausted"
     async with session_factory() as s:
         assert await s.scalar(
             select(func.count())
             .select_from(Message)
             .where(Message.message_type == MessageType.INFORMATION_REQUEST)
-        ) == (1 if mode == "repeat" else 2)
+        ) == 2
 
 
 async def test_same_customer_message_reanalysis_does_not_send_again(
@@ -650,9 +662,45 @@ async def test_disabled_questions(
     client, agent, session_factory, auto_case, monkeypatch
 ):
     configure(monkeypatch, questions_enabled=False)
-    await assert_review(
+    detail = await assert_review(
         client, agent, session_factory, question(auto_case), "AUTO_QUESTION_DISABLED"
     )
+    info = detail["automatic_response"]["information_collection"]
+    assert info["status"] == "자동 질문 꺼짐"
+    assert not info["handoff_required"] and info["questions_sent"] == 0
+
+
+async def test_runtime_switch_is_rechecked_before_pending_question_delivery(
+    client, agent, make_actor, session_factory, auto_case,
+):
+    admin = await make_actor("responseadmin", "admin")
+    result = await client.patch("/api/v1/admin/settings/auto-response", headers=admin["headers"], json={
+        "expected_revision": 0, "questions_enabled": False,
+    })
+    assert result.status_code == 200
+    await assert_review(client, agent, session_factory, question(auto_case), "AUTO_QUESTION_DISABLED")
+
+
+@pytest.mark.parametrize("guard", ["pass", "verification_fail", "tech"])
+async def test_database_answer_switch_still_requires_verified_public_evidence(
+    client, make_actor, auto_case, monkeypatch, guard
+):
+    # UI-managed settings use current public documents, not a stale env allowlist.
+    monkeypatch.setenv("AUTO_RESPONSE_POLICIES", "{}")
+    get_settings.cache_clear()
+    admin = await make_actor("dbpolicyadmin", "admin")
+    saved = await client.patch("/api/v1/admin/settings/auto-response", headers=admin["headers"], json={
+        "expected_revision": 0, "questions_enabled": True, "answers_enabled": True,
+    })
+    assert saved.status_code == 200
+    if guard == "verification_fail":
+        auto_case[2]["verification"]["status"] = "실패"
+        auto_case[2]["verification"]["checks"]["claims_supported"] = "실패"
+    elif guard == "tech":
+        auto_case[2]["routing"] = {"team":"테크", "reason":"기술 조사 필요", "requires_human":True}
+    result = await deliver(client, auto_case)
+    assert result.status_code == 200, result.text
+    assert result.json()["delivery_action"] == ("자동 답변 전송" if guard == "pass" else "담당자 검토")
 
 
 async def test_policy_disabled_after_submission_is_rechecked(

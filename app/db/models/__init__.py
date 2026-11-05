@@ -1,8 +1,9 @@
 from app.db.models.tenant import Tenant
+from app.db.models.response_policy import TenantResponsePolicy
 from app.db.models.user import User
 from app.db.models.refresh_token import RefreshToken
 
-__all__ = ["User", "RefreshToken", "Tenant"]
+__all__ = ["User", "RefreshToken", "Tenant", "TenantResponsePolicy"]
 
 from app.db.models.inquiry import Inquiry, InquirySessionEvent, Message
 from app.db.models.attachment import Attachment

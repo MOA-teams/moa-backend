@@ -22,6 +22,8 @@ class AutoResponsePolicy(BaseModel):
         Field(default_factory=dict)
     )
     max_questions: int = Field(default=2, strict=True, ge=1, le=3)
+    # Explicit opt-in for DB-backed UI settings. Legacy env allowlists remain strict.
+    allow_current_public_documents: bool = False
 
 
 REQUIRED_CHECKS = frozenset(

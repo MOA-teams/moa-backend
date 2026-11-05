@@ -238,6 +238,19 @@ class DraftView(Draft):
     review_reasons: list[str] = Field(default_factory=list)
 
 
+class InformationCollectionView(Contract):
+    status: Literal[
+        "질문 필요", "정보 충분", "고객 응답 대기", "자동 질문 꺼짐", "질문 한도 도달",
+        "추가 답변 후에도 정보 부족", "담당자 확인 필요", "검증 또는 발송 확인 필요",
+    ]
+    stage: Literal["initial", "followup", "exhausted", "sufficient"]
+    questions_sent: int = Field(ge=0)
+    max_questions: int = Field(ge=1, le=3)
+    missing_fields: list[str]
+    handoff_required: bool
+    handoff_reason: str | None
+
+
 class AutomaticResponseView(Contract):
     answer_id: str | None = None
     run_id: RunID
@@ -247,3 +260,4 @@ class AutomaticResponseView(Contract):
     requires_review: bool
     delivery_mode: Literal["자동"] | None
     agent_id: None = None
+    information_collection: InformationCollectionView | None = None

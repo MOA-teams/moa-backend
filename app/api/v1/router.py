@@ -1,10 +1,12 @@
 from fastapi import APIRouter
 
 from app.api.v1 import admin_inquiries, attachments, auth, documents, github, inquiries, tenants
+from app.api.v1 import response_settings
 
 router = APIRouter()
 router.include_router(auth.router)
 router.include_router(tenants.router)
+router.include_router(response_settings.router)
 router.include_router(attachments.router)
 router.include_router(inquiries.router)
 router.include_router(admin_inquiries.router)
