@@ -29,7 +29,10 @@ class GroupPage(BaseModel):
 class GroupDetail(GroupView):
     inquiry_ids: list[str]
     normalized_error_codes: list[str]
-    suspected_code: list[dict] = Field(default_factory=list, description="8단계에서 검증된 조사 후보만 제공. 현재 미연결로 빈 배열")
+    suspected_code: list[dict] = Field(
+        default_factory=list,
+        description="8단계에서 검증된 조사 후보만 제공. 현재 미연결로 빈 배열",
+    )
     next_cursor: str | None
     has_more: bool
 

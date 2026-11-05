@@ -1,4 +1,5 @@
 """그룹 만료 평가(5초)와 Issue·문의 요약 outbox 실행. python -m app.workers.groups"""
+
 import asyncio
 import logging
 from contextlib import suppress
@@ -20,7 +21,10 @@ async def loop(factory, action, interval):
 
 
 async def run_forever(factory):
-    tasks = [asyncio.create_task(loop(factory, action, interval)) for action, interval in ((tick,5),(issue_once,1),(summary_once,1))]
+    tasks = [
+        asyncio.create_task(loop(factory, action, interval))
+        for action, interval in ((tick, 5), (issue_once, 1), (summary_once, 1))
+    ]
     try:
         await asyncio.gather(*tasks)
     finally:
@@ -33,6 +37,7 @@ async def run_forever(factory):
 
 async def main():
     from app.db.session import async_session_factory, engine
+
     try:
         await run_forever(async_session_factory)
     finally:

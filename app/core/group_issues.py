@@ -3,6 +3,7 @@
 현재 기본 공급자는 미연결이다. HTTP 구현은 설치 검증을 대신하지 않으며,
 8단계 통합 시 검증된 target을 전달해야 한다. 임의 환경 토큰을 읽지 않는다.
 """
+
 import asyncio
 from dataclasses import dataclass, field
 import re
@@ -45,32 +46,73 @@ class HttpIssueGateway:
     async def _request(self, tenant, method, *, payload=None, page=None):
         target = self.targets[tenant]
         try:
-            async with httpx.AsyncClient(base_url="https://api.github.com", timeout=10, transport=self.transport, trust_env=False, follow_redirects=False) as client:
-                response = await asyncio.wait_for(client.request(method, f"/repos/{target.repository}/issues",
-                    headers={"Authorization": f"Bearer {target.token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"},
-                    json=payload, params={"state": "all", "per_page": 100, "page": page} if page else None), timeout=10)
+            async with httpx.AsyncClient(
+                base_url="https://api.github.com",
+                timeout=10,
+                transport=self.transport,
+                trust_env=False,
+                follow_redirects=False,
+            ) as client:
+                response = await asyncio.wait_for(
+                    client.request(
+                        method,
+                        f"/repos/{target.repository}/issues",
+                        headers={
+                            "Authorization": f"Bearer {target.token}",
+                            "Accept": "application/vnd.github+json",
+                            "X-GitHub-Api-Version": "2022-11-28",
+                        },
+                        json=payload,
+                        params=(
+                            {"state": "all", "per_page": 100, "page": page}
+                            if page
+                            else None
+                        ),
+                    ),
+                    timeout=10,
+                )
         except (httpx.ConnectError, httpx.ConnectTimeout):
             raise IssueError("GITHUB_CONNECTION_FAILED", retryable=True) from None
         except (httpx.HTTPError, TimeoutError):
-            raise IssueError("GITHUB_RESPONSE_UNKNOWN", retryable=method == "GET", uncertain=method == "POST") from None
+            raise IssueError(
+                "GITHUB_RESPONSE_UNKNOWN",
+                retryable=method == "GET",
+                uncertain=method == "POST",
+            ) from None
         if response.status_code == (201 if method == "POST" else 200):
             try:
                 return response.json()
             except ValueError:
-                raise IssueError("GITHUB_INVALID_RESPONSE", retryable=method == "GET", uncertain=method == "POST") from None
-        if response.status_code == 429 or (response.status_code == 403 and (response.headers.get("x-ratelimit-remaining") == "0" or response.headers.get("retry-after"))):
+                raise IssueError(
+                    "GITHUB_INVALID_RESPONSE",
+                    retryable=method == "GET",
+                    uncertain=method == "POST",
+                ) from None
+        if response.status_code == 429 or (
+            response.status_code == 403
+            and (
+                response.headers.get("x-ratelimit-remaining") == "0"
+                or response.headers.get("retry-after")
+            )
+        ):
             try:
-                delay = max(1, min(int(response.headers.get("retry-after", "60")), 3600))
+                delay = max(
+                    1, min(int(response.headers.get("retry-after", "60")), 3600)
+                )
             except ValueError:
                 delay = 60
             raise IssueError("GITHUB_RATE_LIMITED", retryable=True, retry_after=delay)
         if response.status_code in (401, 403, 404, 422):
             raise IssueError("GITHUB_REQUEST_REJECTED")
-        raise IssueError("GITHUB_UNAVAILABLE", retryable=method == "GET", uncertain=method == "POST")
+        raise IssueError(
+            "GITHUB_UNAVAILABLE", retryable=method == "GET", uncertain=method == "POST"
+        )
 
     def _url(self, tenant, row):
         number = row.get("number") if isinstance(row, dict) else None
-        expected = f"https://github.com/{self.targets[tenant].repository}/issues/{number}"
+        expected = (
+            f"https://github.com/{self.targets[tenant].repository}/issues/{number}"
+        )
         if type(number) is not int or number < 1 or row.get("html_url") != expected:
             raise IssueError("GITHUB_INVALID_RESPONSE", uncertain=True)
         return expected
@@ -81,13 +123,25 @@ class HttpIssueGateway:
             rows = await self._request(tenant, "GET", page=page)
             if not isinstance(rows, list):
                 raise IssueError("GITHUB_INVALID_RESPONSE", retryable=True)
-            matches = [row for row in rows if isinstance(row, dict) and "pull_request" not in row and marker in (row.get("body") or "")]
+            matches = [
+                row
+                for row in rows
+                if isinstance(row, dict)
+                and "pull_request" not in row
+                and marker in (row.get("body") or "")
+            ]
             if matches:
-                return self._url(tenant, min(matches, key=lambda row: row.get("number", 0)))
+                return self._url(
+                    tenant, min(matches, key=lambda row: row.get("number", 0))
+                )
             if len(rows) < 100:
                 return None
         raise IssueError("GITHUB_RECONCILIATION_LIMIT")
 
     async def create(self, tenant, payload):
-        row = await self._request(tenant, "POST", payload={key:payload[key] for key in ("title", "body", "labels")})
+        row = await self._request(
+            tenant,
+            "POST",
+            payload={key: payload[key] for key in ("title", "body", "labels")},
+        )
         return self._url(tenant, row)
