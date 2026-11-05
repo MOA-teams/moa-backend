@@ -9,3 +9,7 @@ from app.db.models.attachment import Attachment
 from app.db.models.idempotency import IdempotencyRecord
 
 __all__ += ["Inquiry", "Message", "Attachment", "IdempotencyRecord"]
+
+from app.db.models.document import Document, DocumentCounter, DocumentJob, DocumentVersion
+
+__all__ += ["Document", "DocumentCounter", "DocumentJob", "DocumentVersion"]

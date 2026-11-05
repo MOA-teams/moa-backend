@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     aws_region: str | None = None
     s3_bucket_name: str | None = None
     s3_presigned_url_expire_seconds: int = Field(default=300, gt=0, le=3600)
+    ai_base_url: str | None = None
+    ai_service_token: SecretStr | None = None
 
     @field_validator("jwt_secret_key")
     @classmethod

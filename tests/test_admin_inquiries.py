@@ -93,7 +93,9 @@ async def test_swagger_and_idempotency_cors(client):
     })
     assert response.status_code == 200
     spec = (await client.get("/openapi.json")).json()
-    assert len(spec["paths"]) == 15
+    assert len(spec["paths"]) == 17
+    assert {"post", "get"} <= spec["paths"]["/api/v1/admin/documents"].keys()
+    assert "patch" in spec["paths"]["/api/v1/admin/documents/{doc_id}/versions/{version}/status"]
     assert spec["components"]["schemas"]["InquiryStatus"]["enum"] == ["received", "in_review", "needs_info", "answered", "closed"]
     operation = spec["paths"]["/api/v1/inquiries"]["post"]
     assert any(p["name"] == "Idempotency-Key" and p["required"] for p in operation["parameters"])

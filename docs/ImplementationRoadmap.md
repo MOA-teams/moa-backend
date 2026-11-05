@@ -3,6 +3,18 @@
 2026-11-05 합의 기준. 단계 순서를 유지하며 각 단계의 외부 의존성 확인을 별도로 기록한다.
 기존 APISpec의 한글 Enum·문자열 ID와 충돌할 때는 아래 합의와 실제 Swagger를 따른다.
 
+## 4단계 구현
+
+- `feat/auth`의 `22ee549`에서 별도 worktree의 `feat/knowledge-documents`로 분기한다. 인증·문의 브랜치를 재작성하지 않는다.
+- K01~K03, 문서 원본·불변 버전, tenant별 AI ID 매핑, PostgreSQL lease worker, PDF·한글 OCR, moa-ai I03~I05 연동을 구현한다.
+- 공개 ID는 숫자, doc_type은 `policy/faq/feature_spec/release_note`, 상태는 `valid/retired`, 인덱싱은 `pending/running/completed/failed`다. AI 경계에서 `DOC-001`~`DOC-999`와 한글 값으로 변환한다.
+- agent/admin 모두 같은 기업 문서를 관리한다. 공용 첨부는 `purpose=inquiry|document`로 분리하며 기본은 inquiry다.
+- 마이그레이션은 인증 후속 변경인 `0005_add_source_customer_id` 뒤에 `0006_create_documents`, `0007_document_attachments`를 연결한다.
+- 이전 버전 검색 차단 미확인 시 성공으로 반환하지 않는다. 원본·멱등 응답·event·revision을 보존해 응답 유실과 재시작을 복구한다.
+- 실행·재시도·운영 검증 기준은 [문서 운영 안내](DocumentOperations.md)를 따른다. 실제 AI/S3 연결과 운영 배포는 자동 대역 테스트와 별도로 확인한다.
+- 2026-11-05: 독립 PostgreSQL에서 전체 pytest **345개 통과**. 실제 Tesseract kor+eng로 한글 PNG/JPEG·스캔 PDF·혼합 PDF 검증도 통과했으며 skip은 없다. 마이그레이션 일치·왕복·기존 첨부 보존, 동시 ID/버전·멱등 요청·권한 격리·응답 유실·worker lease/재시도·CORS를 포함한다.
+- 후속 배포 설정: GitHub Secret `ENV_FILE` 하나로 DB·JWT·S3·AI 설정을 전달한다. 검증·마이그레이션 성공 후 비공개 환경파일을 적용하며 API와 실행 중인 worker를 재시작한다. Secret 등록 방법은 문서 운영 안내를 따른다.
+
 ## 확정한 단계
 
 | 단계 | 구현할 내용 | 관련 API | 완료 기준 |

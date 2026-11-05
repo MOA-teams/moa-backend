@@ -50,6 +50,7 @@ async def lock_attachments(session: AsyncSession, *, user: AuthenticatedUser, at
     attachments = list((await session.scalars(select(Attachment).where(
         Attachment.attachment_id.in_(attachment_ids), Attachment.tenant_id == user.tenant_id,
         Attachment.uploader_id == user.user_id,
+        Attachment.purpose == "inquiry",
     ).order_by(Attachment.attachment_id).with_for_update().execution_options(populate_existing=True))).all())
     if len(attachments) != len(attachment_ids):
         raise attachment_not_found()

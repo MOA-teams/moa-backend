@@ -78,3 +78,18 @@ async def test_unapproved_preflight_method_or_headers_are_rejected(cors_client, 
     })
 
     assert response.status_code == 400
+
+
+@pytest.mark.parametrize("origin", [
+    "http://localhost:5173", "http://localhost:3000",
+    "https://moa-client.vercel.app", "https://moa-admin-teal.vercel.app",
+])
+async def test_document_patch_and_idempotency_preflight(cors_client, origin):
+    response = await cors_client.options("/api/v1/admin/documents/1/versions/1/status", headers={
+        "Origin": origin, "Access-Control-Request-Method": "PATCH",
+        "Access-Control-Request-Headers": "authorization,content-type,idempotency-key",
+    })
+    assert response.status_code == 200
+    assert response.headers["Access-Control-Allow-Origin"] == origin
+    assert "PATCH" in response.headers["Access-Control-Allow-Methods"]
+    assert "idempotency-key" in response.headers["Access-Control-Allow-Headers"].lower()

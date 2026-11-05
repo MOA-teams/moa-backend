@@ -41,3 +41,22 @@ class MessageType(str, Enum):
     ACKNOWLEDGEMENT = "acknowledgement"
     INFORMATION_REQUEST = "information_request"
     FINAL_ANSWER = "final_answer"
+
+
+class DocType(str, Enum):
+    POLICY = "policy"
+    FAQ = "faq"
+    FEATURE_SPEC = "feature_spec"
+    RELEASE_NOTE = "release_note"
+
+
+class DocStatus(str, Enum):
+    VALID = "valid"
+    RETIRED = "retired"
+
+
+class IndexingStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"

@@ -36,7 +36,7 @@ app.add_middleware(
         "https://moa-admin-teal.vercel.app",
     ],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
     expose_headers=["X-Request-ID"],
 )

@@ -71,10 +71,11 @@ except Exception:
 import os
 import runpy
 import sys
+script_name = os.path.basename(sys.argv[1])
 with open(os.environ["DEPLOY_TEST_EVENTS"], "a") as events:
-    events.write("configure-s3\\n")
+    events.write(("configure-env" if script_name == "configure_env.py" else "configure-s3") + "\\n")
 sys.argv = sys.argv[1:]
-runpy.run_path({str(PROJECT_ROOT / "scripts" / "configure_s3.py")!r}, run_name="__main__")
+runpy.run_path(os.path.join({str(PROJECT_ROOT / "scripts")!r}, script_name), run_name="__main__")
 ''')
     executable(commands / "sudo", '''#!/bin/bash
 set -eu
@@ -104,8 +105,16 @@ if [ "$1" = "systemctl" ] && [ "$2" = "daemon-reload" ]; then
   exit 0
 fi
 if [ "$1" = "systemctl" ] && [ "$2" = "restart" ]; then
-  echo restart >> "$DEPLOY_TEST_EVENTS"
+  if [ "$3" = "moa-documents-worker" ]; then
+    echo worker-restart >> "$DEPLOY_TEST_EVENTS"
+  else
+    echo restart >> "$DEPLOY_TEST_EVENTS"
+  fi
   exit 0
+fi
+if [ "$1" = "systemctl" ] && [ "$2" = "is-active" ]; then
+  [ "${DEPLOY_TEST_WORKER_ACTIVE:-0}" = "1" ]
+  exit $?
 fi
 if [ "$1" = "journalctl" ]; then
   echo journal >> "$DEPLOY_TEST_EVENTS"
@@ -147,6 +156,16 @@ exit "${DEPLOY_TEST_HEALTH_EXIT:-0}"
 
         def s3_config(self):
             return (tmp_path / "installed-s3.conf").read_text()
+
+        def env_file(self, name=".env"):
+            return app_dir / name
+
+        def env_payload(self):
+            env["DEPLOY_TEST_EXPECTED_DB"] = self.database_url
+            env["DEPLOY_TEST_EXPECTED_KEY"] = self.key
+            return (f"DATABASE_URL={self.database_url}\nJWT_SECRET_KEY={self.key}\n"
+                    "AWS_REGION=ap-northeast-1\nS3_BUCKET_NAME=moa-test-only-bucket\n"
+                    "AI_BASE_URL=http://127.0.0.1:8001\nAI_SERVICE_TOKEN=test-only-service-token\n")
 
     return Deployment()
 
@@ -246,3 +265,58 @@ def test_invalid_s3_payload_stops_restart(deployment, payload):
     assert result.returncode != 0
     assert "configure-s3" in events
     assert "s3-install" not in events and "restart" not in events
+
+
+def test_env_file_migration_and_restart_share_new_settings(deployment):
+    deployment.configure("dropin")
+    payload = deployment.env_payload()
+    result, events = deployment.run(args=("--env-file",), payload=payload, DEPLOY_TEST_WORKER_ACTIVE="1",
+                                    DATABASE_URL="postgresql+asyncpg://wrong/old", JWT_SECRET_KEY="old-test-only-key" * 3)
+    assert result.returncode == 0, result.stderr
+    assert "read-config" not in events
+    assert events.index("configure-env") < events.index("migration upgrade head") < events.index("s3-install") < events.index("daemon-reload") < events.index("restart") < events.index("worker-restart")
+    assert deployment.env_file().read_text() == payload
+    assert deployment.env_file().stat().st_mode & 0o777 == 0o600
+    assert deployment.env_file(".env.systemd").stat().st_mode & 0o777 == 0o600
+    assert 'AI_BASE_URL="http://127.0.0.1:8001"' in deployment.env_file(".env.systemd").read_text()
+    assert "test-only-service-token" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("payload", ["", "DATABASE_URL='unterminated", "AI_SERVICE_TOKEN=private-invalid-input"])
+def test_bad_env_file_preserves_existing_configuration(deployment, payload):
+    deployment.configure("dotenv")
+    before = deployment.env_file().read_text()
+    result, events = deployment.run(args=("--env-file",), payload=payload)
+    assert result.returncode != 0
+    assert deployment.env_file().read_text() == before
+    assert not deployment.env_file(".env.systemd").exists()
+    assert "migration upgrade head" not in events and "restart" not in events
+    assert "private-invalid-input" not in result.stdout + result.stderr
+
+
+def test_env_file_failed_migration_preserves_existing_files(deployment):
+    deployment.configure("dotenv")
+    before = deployment.env_file().read_text()
+    result, events = deployment.run(args=("--env-file",), payload=deployment.env_payload(), DEPLOY_TEST_MIGRATION_EXIT="9")
+    assert result.returncode != 0
+    assert deployment.env_file().read_text() == before
+    assert not deployment.env_file(".env.systemd").exists()
+    assert "migration upgrade head" in events and "s3-install" not in events and "restart" not in events
+
+
+def test_manual_redeploy_after_env_file_does_not_return_to_stale_dropin(deployment):
+    deployment.configure("dropin")
+    first, _ = deployment.run(args=("--env-file",), payload=deployment.env_payload())
+    assert first.returncode == 0
+    second, events = deployment.run()
+    assert second.returncode == 0
+    assert events.count("configure-env") == 2 and "read-config" not in events
+    assert events.count("migration upgrade head") == 2
+
+
+def test_legacy_s3_mode_cannot_override_new_env_file(deployment):
+    first, _ = deployment.run(args=("--env-file",), payload=deployment.env_payload())
+    assert first.returncode == 0
+    second, events = deployment.run(args=("--configure-s3",), payload="{}")
+    assert second.returncode != 0
+    assert events.count("migration upgrade head") == 1
