@@ -177,18 +177,20 @@ class GitHubClient:
                 return items
         raise GitHubError("GITHUB_LIST_LIMIT", retryable=False)
 
-    async def installation_token(self, iid, repository_id):
+    async def installation_token(self, iid, repository_id, *, issues_write=False):
         result = await self.request(
             "POST",
             f"/app/installations/{iid}/access_tokens",
             self.app_token(),
             payload={
                 "repository_ids": [repository_id],
-                "permissions": {"contents": "read", "metadata": "read"},
+                "permissions": ({"issues": "write", "metadata": "read"} if issues_write else {"contents": "read", "metadata": "read"}),
             },
         )
-        if not result.get("token"):
+        if not isinstance(result, dict) or not isinstance(result.get("token"), str) or not result["token"]:
             raise GitHubError("GITHUB_INVALID_RESPONSE")
+        if issues_write and (not isinstance(result.get("permissions"), dict) or result["permissions"].get("issues") != "write"):
+            raise GitHubError("GITHUB_ISSUES_PERMISSION_REQUIRED", retryable=False)
         return result["token"]
 
     async def branches(self, repo, token):

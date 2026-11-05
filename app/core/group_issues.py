@@ -1,8 +1,4 @@
-"""8단계와 연결할 좁은 Issue 경계. 검증된 설치 토큰·저장소만 주입한다.
-
-현재 기본 공급자는 미연결이다. HTTP 구현은 설치 검증을 대신하지 않으며,
-8단계 통합 시 검증된 target을 전달해야 한다. 임의 환경 토큰을 읽지 않는다.
-"""
+"""Issue HTTP 경계. POST 결과 불명확성과 안전한 재시도를 구분한다."""
 
 import asyncio
 from dataclasses import dataclass, field
@@ -18,13 +14,9 @@ class IssueError(Exception):
         super().__init__(code)
 
 
-class UnavailableIssueGateway:
-    async def ready(self, tenant):
-        return False
-
-
-def get_issue_gateway():
-    return UnavailableIssueGateway()
+def get_issue_gateway(factory):
+    from app.services.group_github import IntegrationIssueGateway
+    return IntegrationIssueGateway(factory)
 
 
 @dataclass(frozen=True)
@@ -43,6 +35,9 @@ class HttpIssueGateway:
     async def ready(self, tenant):
         return tenant in self.targets
 
+    async def prepare(self, tenant, payload):
+        return payload
+
     async def _request(self, tenant, method, *, payload=None, page=None):
         target = self.targets[tenant]
         try:
@@ -60,7 +55,7 @@ class HttpIssueGateway:
                         headers={
                             "Authorization": f"Bearer {target.token}",
                             "Accept": "application/vnd.github+json",
-                            "X-GitHub-Api-Version": "2022-11-28",
+                            "X-GitHub-Api-Version": "2026-03-10",
                         },
                         json=payload,
                         params=(
@@ -123,6 +118,9 @@ class HttpIssueGateway:
             rows = await self._request(tenant, "GET", page=page)
             if not isinstance(rows, list):
                 raise IssueError("GITHUB_INVALID_RESPONSE", retryable=True)
+            if any(not isinstance(row, dict) or type(row.get("number")) is not int
+                   or (row.get("body") is not None and not isinstance(row["body"], str)) for row in rows):
+                raise IssueError("GITHUB_INVALID_RESPONSE", retryable=True)
             matches = [
                 row
                 for row in rows
@@ -131,9 +129,10 @@ class HttpIssueGateway:
                 and marker in (row.get("body") or "")
             ]
             if matches:
-                return self._url(
-                    tenant, min(matches, key=lambda row: row.get("number", 0))
-                )
+                try:
+                    return self._url(tenant, min(matches, key=lambda row: row["number"]))
+                except IssueError:
+                    raise IssueError("GITHUB_INVALID_RESPONSE", retryable=True) from None
             if len(rows) < 100:
                 return None
         raise IssueError("GITHUB_RECONCILIATION_LIMIT")

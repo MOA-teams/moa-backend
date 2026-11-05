@@ -8,7 +8,7 @@ API_DESCRIPTION = """
 - `/admin/groups`에서 최근 5분 문의 수와 급증(8건 이상)을 조회합니다. 10분 무접수 시 장애 구간이 종료됩니다.
 - `/admin/alerts`의 읽음 상태는 담당자별입니다. PATCH `read=true`는 최초 읽음 시각을 보존합니다.
 - 그룹 상세의 episode_id로 GitHub Issue를 요청합니다. `202`는 저장 완료이며 GitHub 미연결 시 `대기/GITHUB_INTEGRATION_NOT_READY`입니다.
-- Issue 결과가 `확인 필요`이면 생성 여부가 불명확해 재생성을 차단한 상태입니다. 임의 새 키로 중복 생성하지 마세요.
+- Issue 결과가 `확인 필요`이면 생성 여부가 불명확해 재생성을 차단한 상태입니다. GitHub 연결 후에는 해당 저장소에 한정된 Issues: write 설치 토큰으로 처리하며 저장소·보안 정책이 바뀌면 생성 전에 다시 확인합니다. 임의 새 키로 중복 생성하지 마세요.
 - 운영자는 별도 프로세스 `python -m app.workers.groups` 또는 `GROUPS_WORKER_ENABLED=true`로 구간 만료·요약 동기화·Issue 복구를 실행합니다.
 
 ## 담당자 답변·종료·평가

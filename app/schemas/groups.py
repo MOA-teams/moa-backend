@@ -31,7 +31,7 @@ class GroupDetail(GroupView):
     normalized_error_codes: list[str]
     suspected_code: list[dict] = Field(
         default_factory=list,
-        description="8단계에서 검증된 조사 후보만 제공. 현재 미연결로 빈 배열",
+        description="현재 GitHub 허용 경로·보안 정책·검색 원본과 일치하는 조사 후보만 제공. 원인 확정이 아닙니다.",
     )
     next_cursor: str | None
     has_more: bool

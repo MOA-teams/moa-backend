@@ -129,6 +129,16 @@ async def process(factory, job_id, token, gateway):
         job.attempts += 1
         await session.commit()
     try:
+        prepared = await gateway.prepare(tenant, payload)
+        async with factory() as session:
+            _, _, job = await locked(session, job_id, token)
+            if job is None:
+                return
+            if job.phase == "reconcile" and payload.get("github_target") is None and prepared.get("github_target"):
+                raise IssueError("GITHUB_TARGET_UNKNOWN")
+            job.payload = prepared
+            payload = prepared
+            await session.commit()
         url = await gateway.find(tenant, payload["marker"])
         if url is None and phase == "reconcile":
             async with factory() as session:
@@ -204,7 +214,7 @@ async def run_once(factory, gateway=None):
     if item is None:
         return False
     try:
-        await process(factory, *item, gateway or get_issue_gateway())
+        await process(factory, *item, gateway or get_issue_gateway(factory))
     except Exception:
         # POST가 시작됐을 수 있다. lease 만료 후 reconcile로 복구하며 원문 예외를 노출하지 않는다.
         logger.error("issue_worker_failed job_id=%s", item[0])

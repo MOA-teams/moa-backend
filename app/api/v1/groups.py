@@ -51,7 +51,7 @@ async def groups(
     "/groups/{group_id}",
     response_model=GroupDetail,
     summary="그룹 구성원·장애 구간·Issue 상태 조회",
-    description="구성원은 숫자 내부 순서의 내림차순 cursor 페이지입니다. 다른 기업 그룹은 404입니다. issue_creation_status가 대기이고 issue_error_code가 GITHUB_INTEGRATION_NOT_READY이면 GitHub 연결 대기입니다. 확인 필요이면 재생성하지 말고 기존 Issue 유무를 확인해야 합니다. 코드 후보는 8단계 연결 전 빈 배열입니다.",
+    description="구성원은 숫자 내부 순서의 내림차순 cursor 페이지입니다. 다른 기업 그룹은 404입니다. issue_creation_status가 대기이고 issue_error_code가 GITHUB_INTEGRATION_NOT_READY이면 GitHub 연결 대기입니다. 확인 필요이면 재생성하지 말고 기존 Issue 유무를 확인해야 합니다. 코드 후보는 현재 연동의 허용 경로와 검증된 원본에 일치하는 항목만 반환합니다. 연결·검증된 후보가 없으면 빈 배열입니다.",
 )
 async def group(
     group_id: GroupID, user: User, session: DB, cursor: Cursor = None, limit: Limit = 20

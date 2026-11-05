@@ -7,6 +7,7 @@ from app.core.errors import APIError
 from app.db.models import Inquiry, InquiryGroup, IssueJob, SurgeEpisode
 from app.services.alerts import cursor_id
 from app.services.attachments import require_tenant
+from app.services.group_github import issue_context
 from app.services.groups import QUIET, THRESHOLD, WINDOW, utcnow
 
 
@@ -134,13 +135,14 @@ async def group_detail(session, user, external_id, cursor, limit):
         ).all()
     )
     more, rows = len(rows) > limit, rows[:limit]
+    _, candidates, _ = await issue_context(session, group)
     return {
         **await view(session, group, utcnow()),
         "inquiry_ids": [m.public_id for m in rows],
         "normalized_error_codes": (
             [group.normalized_error_code] if group.normalized_error_code else []
         ),
-        "suspected_code": [],
+        "suspected_code": candidates,
         "next_cursor": (
             encode_cursor(scope, {"id": rows[-1].inquiry_id}) if more else None
         ),

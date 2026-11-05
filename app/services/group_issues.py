@@ -10,6 +10,7 @@ from app.db.models import Inquiry, InquiryGroup, IssueJob, SurgeEpisode
 from app.services.attachments import require_tenant
 from app.services.groups import WINDOW, lock_groups, recent_members, utcnow
 from app.services.inquiries import begin_idempotent_request
+from app.services.group_github import issue_context
 
 
 def safe_environment(members):
@@ -60,6 +61,11 @@ async def enqueue_issue(
         if group.normalized_error_code
         else f"{group.category} 관련"
     )
+    target, candidates, references = await issue_context(session, group)
+    if not include_suspected_code:
+        candidates, references = [], []
+    investigation = "코드 후보: " + (", ".join(f"{c['path']} ({c['commit_sha']})" for c in candidates) or "검증된 후보 없음")
+    investigation += "\n관련 커밋: " + (", ".join(sorted({c["commit_sha"] for c in candidates})) or "없음")
     body = "\n".join(
         [
             f"## 문의 요약\n{symptom} 문의 급증",
@@ -69,7 +75,7 @@ async def enqueue_issue(
             "대표 문의: " + (members[0].public_id if members else "없음"),
             "환경: " + (", ".join(safe_environment(members)) or "확인 필요"),
             "문의 ID: " + ", ".join(m.public_id for m in members),
-            "코드 후보·관련 커밋: GitHub 검증 자료 연동 전이며 포함하지 않았습니다.",
+            investigation,
             "MOA가 자동 작성한 조사 요청입니다. 원인이 확정된 것이 아닙니다.",
             marker,
         ]
@@ -83,6 +89,8 @@ async def enqueue_issue(
             "labels": ["bug", "moa-auto"],
             "marker": marker,
             "include_suspected_code": include_suspected_code,
+            "github_target": target,
+            "github_sources": references,
         },
     )
     session.add(job)
