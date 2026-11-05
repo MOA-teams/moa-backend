@@ -95,7 +95,15 @@ async def test_swagger_and_idempotency_cors(client):
     })
     assert response.status_code == 200
     spec = (await client.get("/openapi.json")).json()
-    assert len(spec["paths"]) == 36
+    # New endpoints must not invalidate unrelated API contracts just by increasing a count.
+    settings_path = "/api/v1/admin/settings/auto-response"
+    assert {"get", "patch"} <= spec["paths"][settings_path].keys()
+    for method in ("get", "patch"):
+        assert spec["paths"][settings_path][method]["security"]
+    progress = spec["components"]["schemas"]["ResponseProgress"]["properties"]
+    assert set(progress["state"]["enum"]) == {
+        "idle", "analyzing", "awaiting_customer", "waiting_agent", "answered", "closed",
+    }
     for path in (
         "/api/v1/inquiries/{inquiry_id}/session-events",
         "/api/v1/inquiries/{inquiry_id}/read",

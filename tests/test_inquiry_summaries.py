@@ -143,6 +143,8 @@ async def test_failure_does_not_rollback_inquiry_and_recovers(
     row, _ = await add_inquiry(session_factory, customer)
     rag = Rag()
     rag.fail = True
+    # Explicitly make the job due; PostgreSQL and the host can have clock skew.
+    await due(session_factory)
     await run_once(session_factory, rag.client)  # barrier 없는 첫 단계
     await run_once(session_factory, rag.client)
     async with session_factory() as s:
@@ -179,6 +181,7 @@ async def test_stale_jobs_never_overwrite_latest_group(customer, session_factory
 async def test_http_in_flight_serialized_across_workers(customer, session_factory):
     row, _ = await add_inquiry(session_factory, customer)
     rag = Rag()
+    await due(session_factory)
     await run_once(session_factory, rag.client)
     rag.block = asyncio.Event()
     first = asyncio.create_task(run_once(session_factory, rag.client))

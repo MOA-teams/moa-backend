@@ -36,7 +36,7 @@ async def test_automatic_answer_waits_for_bound_github_sync(
 
 
 async def test_released_github_branch_upgrade_and_downgrade_preserve_sources(
-    db_engine, session_factory, migrate
+    db_engine, session_factory, migrate, migration_head
 ):
     async with db_engine.begin() as connection:
         await connection.run_sync(migrate, "downgrade", "base")
@@ -69,7 +69,7 @@ async def test_released_github_branch_upgrade_and_downgrade_preserve_sources(
         await connection.run_sync(migrate, "upgrade", "head")
         assert (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalars().all() == ["0014_inquiry_activity_merge"]
+        ).scalars().all() == [migration_head]
         for table in tables:
             assert (
                 await connection.execute(text(f"SELECT * FROM {table} ORDER BY 1"))

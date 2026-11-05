@@ -38,7 +38,7 @@ async def test_presence_and_reads_preserve_answer_and_feedback(client, customer,
 
 
 @pytest.mark.parametrize("revision", ["0010_inquiry_activity", "0013_groups_github"])
-async def test_released_activity_and_main_migrations_roundtrip(db_engine, migrate, revision):
+async def test_released_activity_and_main_migrations_roundtrip(db_engine, migrate, revision, migration_head):
     async with db_engine.begin() as connection:
         await connection.run_sync(migrate, "downgrade", "base")
         await connection.run_sync(migrate, "upgrade", revision)
@@ -55,7 +55,7 @@ async def test_released_activity_and_main_migrations_roundtrip(db_engine, migrat
         events = (await connection.execute(text("SELECT * FROM inquiry_session_events"))).all() if revision == "0010_inquiry_activity" else []
     async with db_engine.begin() as connection:
         await connection.run_sync(migrate, "upgrade", "head")
-        assert (await connection.execute(text("SELECT version_num FROM alembic_version"))).scalars().all() == ["0014_inquiry_activity_merge"]
+        assert (await connection.execute(text("SELECT version_num FROM alembic_version"))).scalars().all() == [migration_head]
         upgraded = (await connection.execute(text("SELECT * FROM inquiries"))).mappings().one()
         assert {key: upgraded[key] for key in before} == before
         assert (await connection.execute(text("SELECT * FROM messages"))).all() == messages

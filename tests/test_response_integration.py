@@ -237,7 +237,7 @@ async def test_delivered_auto_draft_cannot_be_approved_twice(
 
 @pytest.mark.parametrize("revision", ["0010_answers", "0010_automatic_responses"])
 async def test_each_released_migration_branch_upgrades_without_data_loss(
-    db_engine, migrate, revision
+    db_engine, migrate, revision, migration_head
 ):
     async with db_engine.begin() as c:
         await c.run_sync(migrate, "downgrade", "base")
@@ -313,7 +313,7 @@ async def test_each_released_migration_branch_upgrades_without_data_loss(
             assert (await c.execute(text(sql))).all() == before[table]
         assert (
             await c.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalars().all() == ["0014_inquiry_activity_merge"]
+        ).scalars().all() == [migration_head]
         if revision == "0010_answers":
             assert await c.scalar(text("SELECT nextval('public_answer_seq')")) == 1002
         else:

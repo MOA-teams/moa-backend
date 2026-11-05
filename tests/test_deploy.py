@@ -1,5 +1,6 @@
 """실제 배포 스크립트를 명령 대역으로 실행한다. 서버·업무 DB에는 접속하지 않는다."""
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -31,6 +32,12 @@ def deployment(tmp_path):
         path.write_text(content)
         path.chmod(0o700)
 
+    def python_executable(path, content):
+        # A shebang cannot quote a Python path containing spaces (common on macOS).
+        # Keep stdin available for deployment configuration payloads.
+        executable(path, '#!/bin/bash\nexec ' + shlex.quote(sys.executable)
+                   + ' -c ' + shlex.quote(content) + ' "$@"\n')
+
     executable(commands / "git", '''#!/bin/bash
 set -eu
 if [ "$1" = "rev-parse" ]; then
@@ -44,7 +51,7 @@ set -eu
 echo install >> "$DEPLOY_TEST_EVENTS"
 exit "${DEPLOY_TEST_PIP_EXIT:-0}"
 ''')
-    executable(venv_bin / "alembic", f'''#!{sys.executable}
+    python_executable(venv_bin / "alembic", f'''
 import os
 import sys
 from pathlib import Path
@@ -67,7 +74,7 @@ except Exception:
     print("test migration: configuration unavailable", file=sys.stderr)
     sys.exit(2)
 ''')
-    executable(venv_bin / "python", f'''#!{sys.executable}
+    python_executable(venv_bin / "python", f'''
 import os
 import runpy
 import sys

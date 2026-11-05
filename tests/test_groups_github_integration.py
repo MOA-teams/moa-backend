@@ -400,7 +400,7 @@ async def test_issue_snapshots_verified_candidates_and_rechecks_source(
 
 
 async def test_groups_branch_upgrade_preserves_jobs_and_alerts(
-    db_engine, migrate, session_factory, episode
+    db_engine, migrate, session_factory, episode, migration_head
 ):
     tables = [
         "users",
@@ -419,7 +419,7 @@ async def test_groups_branch_upgrade_preserves_jobs_and_alerts(
         await c.run_sync(migrate, "upgrade", "head")
         assert (
             await c.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalars().all() == ["0014_inquiry_activity_merge"]
+        ).scalars().all() == [migration_head]
         for table in tables:
             assert (
                 await c.execute(text(f"SELECT * FROM {table} ORDER BY 1"))
