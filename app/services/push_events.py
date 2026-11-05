@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.core.cursor import decode_cursor, encode_cursor
 from app.core.errors import APIError
 from app.core.github import GitHubError
-from app.db.models import GitHubIntegration, PushEvent, ReviewItem
+from app.db.models import GitHubIntegration, GitHubJob, PushEvent, ReviewItem
 from app.services.alerts import cursor_id
 from app.services.github import staff
 from app.services.github_security import exclusion, sanitize
@@ -23,10 +23,14 @@ def clean(value, path, limit=10000):
 
 
 def commit_view(row):
-    if not isinstance(row, dict) or not SHA.fullmatch(row.get("sha", "")):
+    if not isinstance(row, dict) or not isinstance(row.get("sha"), str) or not SHA.fullmatch(row["sha"]):
         raise GitHubError("GITHUB_INVALID_RESPONSE", retryable=False)
     info = row.get("commit", {})
+    if not isinstance(info, dict):
+        raise GitHubError("GITHUB_INVALID_RESPONSE", retryable=False)
     author = info.get("author") or {}
+    if not isinstance(author, dict):
+        raise GitHubError("GITHUB_INVALID_RESPONSE", retryable=False)
     date = author.get("date")
     try:
         if datetime.fromisoformat(date.replace("Z", "+00:00")).utcoffset() is None:
@@ -114,6 +118,7 @@ async def collect_push(event, integration, github):
 
 
 async def event_view(session, event, integration):
+    job = await session.get(GitHubJob, event.job_id)
     permitted = matching_policy(event, integration)
     changes = []
     for entry in event.changes:
@@ -136,7 +141,8 @@ async def event_view(session, event, integration):
             "summary": event.summary, "summary_kind": "change_statistics", "changes": changes,
             "affected_draft_ids": sorted({target for kind, target in affected if kind == "draft"}),
             "affected_document_ids": sorted({target for kind, target in affected if kind == "document"}),
-            "status": event.status, "complete": event.complete, "error_code": event.error_code, "created_at": event.created_at}
+            "status": event.status, "complete": event.complete, "error_code": event.error_code,
+            "sync_status": job.phase, "sync_error_code": job.error_code, "created_at": event.created_at}
 
 
 async def list_events(session, user, cursor, limit):
@@ -164,7 +170,10 @@ async def recent_commits(session, user, github, cursor, limit):
     token = await github.installation_token(integration.installation_id, integration.repository_id)
     await session.commit()
     if position is None:
-        head = (await github.head(integration.repository, integration.watch_branch, token))["sha"]
+        response = await github.head(integration.repository, integration.watch_branch, token)
+        if not isinstance(response, dict) or not isinstance(response.get("sha"), str) or not SHA.fullmatch(response["sha"]):
+            raise GitHubError("GITHUB_INVALID_RESPONSE", retryable=False)
+        head = response["sha"]
         offset = 0
     else:
         head, offset = position.get("head"), position.get("offset")
