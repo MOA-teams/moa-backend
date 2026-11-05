@@ -12,6 +12,7 @@ from app.db.models import GitHubIntegration, PushEvent
 from app.services.analysis import utcnow
 from app.services.knowledge import lock_knowledge
 from app.services.push_events import collect_push, matching_policy
+from app.services.group_github import policy_hash
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ async def run_once(factory, github):
         event.attempts += 1
         event_id, tenant, token = event.event_id, event.tenant_id, event.lease_token
         integration = await session.get(GitHubIntegration, event.integration_id)
+        policy = policy_hash(integration) if integration else None
         await session.commit()
         try:
             result = await asyncio.wait_for(collect_push(event, integration, github), 30)
@@ -44,6 +46,9 @@ async def run_once(factory, github):
         integration = await session.get(GitHubIntegration, event.integration_id, populate_existing=True)
         if result and not matching_policy(event, integration):
             result, error = None, GitHubError("GITHUB_INTEGRATION_DISABLED", retryable=False)
+        elif result and policy != policy_hash(integration):
+            # 외부 조회 중 축소된 경로·보안 수준으로 다시 수집한다. 이전 권한의 diff는 저장하지 않는다.
+            result, error = None, GitHubError("GITHUB_POLICY_CHANGED", retryable=True)
         event.lease_until = event.lease_token = None
         if result:
             event.commit_info, event.changes, event.complete, event.error_code = result

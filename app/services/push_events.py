@@ -124,6 +124,8 @@ async def event_view(session, event, integration):
     for entry in event.changes:
         value = dict(entry)
         reason = path_exclusion(value["path"], event, integration) if permitted else "integration_unavailable"
+        if permitted and value.get("previous_path") and path_exclusion(value["previous_path"], event, integration):
+            reason = reason or "previous_path_excluded"
         if reason:
             value.update(excluded=True, exclude_reason=reason, diff=None, diff_complete=False, summary="제외된 파일")
         elif min(event.security_level, integration.security_level) < 2:
