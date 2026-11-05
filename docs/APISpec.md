@@ -276,13 +276,14 @@ customer는 자기 메시지만 추가. 서버가 message_id를 발급하고 rev
 
 담당: **백엔드**
 
-multipart/form-data의 file 바이너리 필드 사용. 아래 요청 JSON은 파일 입력 설명용이며 실제 JSON body가 아니다. PNG/JPEG/PDF, 파일당 10MB. URL/서버 경로 임의 지정 불가. 임시 첨부는 업로더 소유권을 저장하고 문의에 연결 시 검증.
+multipart/form-data의 file 바이너리 필드와 purpose 필드를 사용한다. purpose 기본값은 inquiry이며 customer는 inquiry, agent/admin은 document만 업로드할 수 있다. 아래 JSON은 설명용이며 실제 JSON body가 아니다. PNG/JPEG/PDF, 파일당 10MiB. URL/서버 경로 임의 지정은 금지한다. 임시 첨부는 업로더만 연결할 수 있으며 문의/문서 간 교차 연결·재사용은 금지한다.
 
 요청 JSON:
 
 ```json
 {
   "multipart_field": "file",
+  "purpose": "inquiry",
   "file_name": "error.png",
   "mime": "image/png"
 }
@@ -292,7 +293,8 @@ multipart/form-data의 file 바이너리 필드 사용. 아래 요청 JSON은 �
 
 ```json
 {
-  "attachment_id": "ATT-0001",
+  "attachment_id": 1,
+  "file_name": "error.png",
   "url": "https://storage.example/signed-file",
   "mime": "image/png",
   "size": 182344,
@@ -304,7 +306,7 @@ multipart/form-data의 file 바이너리 필드 사용. 아래 요청 JSON은 �
 
 담당: **백엔드**
 
-첨부 URL 만료 시 권한 확인 후 재발급. 일반 공개 영구 URL을 반환하지 않는다. 내부 LLM도 허용된 첨부만 접근.
+첨부 URL 만료 시 권한 확인 후 재발급한다. 고객은 본인의 문의 첨부, agent/admin은 같은 기업 문의·문서에 연결된 첨부와 본인의 임시 문서 첨부를 조회한다. 타인의 미연결 문서 첨부와 다른 기업의 첨부는 404다. 일반 공개 영구 URL을 반환하지 않는다.
 
 요청 본문 없음.
 
@@ -312,7 +314,8 @@ multipart/form-data의 file 바이너리 필드 사용. 아래 요청 JSON은 �
 
 ```json
 {
-  "attachment_id": "ATT-0001",
+  "attachment_id": 1,
+  "file_name": "error.png",
   "url": "https://storage.example/renewed-signed-file",
   "mime": "image/png",
   "size": 182344,
@@ -817,17 +820,20 @@ RAG가 사용할 문서 입력과 조회만 남긴다. 서비스 정보는 시�
 
 담당: **백엔드 원본 저장 → LLM 인덱싱**
 
-doc_id/version/front matter 필드 유지. text/attachment_id 중 하나. 신규 버전 등록 시 기존 버전 폐기·검색 차단 후 인덱싱. 원본 작성 시각 created_at과 업로드 시각 uploaded_at 구분.
+외부 경로는 `/api/v1/admin/documents`. 같은 기업의 agent/admin 모두 사용한다. 공개 doc_id는 숫자이고 신규 등록 시 생략한다. 신규 문서는 version=1, 이후에는 기존 doc_id와 다음 버전 번호를 보낸다. 동일 버전 덮어쓰기는 409다.
+
+doc_type은 `policy/faq/feature_spec/release_note`, status는 `valid/retired`. text와 attachment_id 중 정확히 하나를 보낸다. 첨부는 본인이 `purpose=document`로 업로드한 미연결 파일이어야 한다. 원본 작성 시각 created_at은 타임존 필수이며 서버 uploaded_at과 구분한다.
+
+`Idempotency-Key` 필수. 같은 키·본문은 같은 접수 결과, 다른 본문은 409다. 새 버전은 이전 버전 검색 차단 확인 후에만 202를 반환한다. 503에도 원본·작업은 보존되므로 같은 키·본문으로 재시도한다. 인덱싱은 별도 worker가 처리한다.
 
 요청 JSON:
 
 ```json
 {
-  "doc_id": "DOC-005",
   "version": 1,
-  "doc_type": "FAQ",
+  "doc_type": "faq",
   "title": "오류 코드 안내",
-  "status": "유효",
+  "status": "valid",
   "created_at": "2026-10-15T00:00:00+09:00",
   "text": "E-502는 저장 처리 중 발생하는 오류입니다.",
   "attachment_id": null
@@ -838,10 +844,10 @@ doc_id/version/front matter 필드 유지. text/attachment_id 중 하나. 신규
 
 ```json
 {
-  "doc_id": "DOC-005",
+  "doc_id": 5,
   "version": 1,
-  "status": "유효",
-  "indexing_status": "대기",
+  "status": "valid",
+  "indexing_status": "pending",
   "uploaded_at": "2026-11-04T22:00:00+09:00"
 }
 ```
@@ -850,13 +856,15 @@ doc_id/version/front matter 필드 유지. text/attachment_id 중 하나. 신규
 
 담당: **백엔드**
 
-현재 문서/인덱싱 상태. 백엔드는 내부 소스 상태 조회로 동기화한다. 폐기/재검토/인덱싱 미완료 자료는 검색 금지.
+최신 버전과 인덱싱 상태를 조회한다. 최신 버전 선정 후 status를 필터링하며 과거 버전으로 자동 복귀하지 않는다. 기본 20개, 최대 100개, doc_id 내림차순이며 서명 cursor는 같은 사용자·기업·필터에서만 유효하다.
+
+I05로 동기화하며 `indexing_status=completed`만으로 검색 가능하다고 판단하지 않는다. 최신 버전·revision·상태·재검토 여부와 AI의 searchable까지 확인한다. 조회 실패 시 마지막 확인 상태와 sync_error를 반환하고 searchable=false로 표시한다.
 
 쿼리 예시(JSON은 설명용):
 
 ```json
 {
-  "status": "유효",
+  "status": "valid",
   "cursor": null,
   "limit": 20
 }
@@ -868,15 +876,23 @@ doc_id/version/front matter 필드 유지. text/attachment_id 중 하나. 신규
 {
   "items": [
     {
-      "doc_id": "DOC-005",
+      "doc_id": 5,
       "version": 1,
       "title": "오류 코드 안내",
-      "status": "유효",
+      "doc_type": "faq",
+      "status": "valid",
       "review_required": false,
-      "indexing_status": "완료"
+      "created_at": "2026-10-15T00:00:00+09:00",
+      "uploaded_at": "2026-11-04T22:00:00+09:00",
+      "attachment_id": null,
+      "indexing_status": "completed",
+      "indexing_error": null,
+      "sync_error": null,
+      "searchable": true
     }
   ],
-  "next_cursor": null
+  "next_cursor": null,
+  "has_more": false
 }
 ```
 
@@ -884,13 +900,13 @@ doc_id/version/front matter 필드 유지. text/attachment_id 중 하나. 신규
 
 담당: **백엔드 → LLM 검색 제외**
 
-문서 enum은 유효/폐기 유지. 재검토는 별도 플래그. I04 적용 성공 또는 동등한 검색 차단 보장 후 성공 응답. 차단 실패는 성공으로 반환하지 않는다.
+공개 status는 valid/retired, 재검토는 review_required 플래그다. reason은 필수다. I04 적용 또는 동등한 차단 보장을 확인한 뒤 200을 반환한다. 실패는 503이며 같은 상태로 재시도한다. 미확정 변경 중 다른 변경은 409다. 이전 버전 재활성화는 409이며 새 버전을 등록해야 한다. 최신 버전 재활성화·재검토 해제는 새 revision으로 재인덱싱한다.
 
 요청 JSON:
 
 ```json
 {
-  "status": "유효",
+  "status": "valid",
   "review_required": true,
   "reason": "관련 코드 변경 확인 필요"
 }
@@ -900,9 +916,9 @@ doc_id/version/front matter 필드 유지. text/attachment_id 중 하나. 신규
 
 ```json
 {
-  "doc_id": "DOC-005",
+  "doc_id": 5,
   "version": 1,
-  "status": "유효",
+  "status": "valid",
   "review_required": true,
   "searchable": false
 }

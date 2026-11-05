@@ -22,7 +22,14 @@ MOA 프론트엔드 연동을 위한 인증·기업 소속·문의·채팅·S3 �
 6. 첨부 다운로드 직전에 `GET /api/v1/attachments/{id}`로 기본 300초의 다운로드 URL을 발급받습니다.
 7. agent/admin은 `/api/v1/admin/inquiries`에서 본인 기업의 목록과 상세를 조회합니다.
 
-Enum은 영어 snake_case이며 문의·메시지·첨부 ID는 숫자입니다. AI 요청·답변·상담 종료는 아직 연결하지 않았습니다.
+Enum은 영어 snake_case이며 문의·메시지·첨부·문서 ID는 숫자입니다. 문의 AI 분석·답변·상담 종료는 후속 단계입니다.
+
+## 지식 문서 연동 순서
+1. 같은 기업의 agent/admin이 `/api/v1/admin/documents`를 사용합니다.
+2. 파일은 첨부 API에 multipart `purpose=document`로 먼저 업로드합니다. 직접 입력이면 `text`를 사용합니다.
+3. 신규 문서는 doc_id를 생략하고 version=1, 이후 기존 숫자 ID와 다음 version을 보냅니다. Idempotency-Key와 타임존이 있는 created_at이 필요합니다.
+4. 202 이후 목록의 indexing_status·indexing_error·sync_error·searchable을 확인합니다. 문서 worker가 별도로 실행되어야 합니다.
+5. 상태 변경은 PATCH를 사용합니다. 503이면 저장된 작업의 검색 상태 확인이 남아 있으므로 같은 요청으로 재시도합니다.
 
 ## 토큰 처리
 - 인증이 필요한 API는 `Authorization: Bearer <access_token>`을 사용합니다.
