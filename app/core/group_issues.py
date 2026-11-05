@@ -16,6 +16,7 @@ class IssueError(Exception):
 
 def get_issue_gateway(factory):
     from app.services.group_github import IntegrationIssueGateway
+
     return IntegrationIssueGateway(factory)
 
 
@@ -118,8 +119,12 @@ class HttpIssueGateway:
             rows = await self._request(tenant, "GET", page=page)
             if not isinstance(rows, list):
                 raise IssueError("GITHUB_INVALID_RESPONSE", retryable=True)
-            if any(not isinstance(row, dict) or type(row.get("number")) is not int
-                   or (row.get("body") is not None and not isinstance(row["body"], str)) for row in rows):
+            if any(
+                not isinstance(row, dict)
+                or type(row.get("number")) is not int
+                or (row.get("body") is not None and not isinstance(row["body"], str))
+                for row in rows
+            ):
                 raise IssueError("GITHUB_INVALID_RESPONSE", retryable=True)
             matches = [
                 row
@@ -130,9 +135,13 @@ class HttpIssueGateway:
             ]
             if matches:
                 try:
-                    return self._url(tenant, min(matches, key=lambda row: row["number"]))
+                    return self._url(
+                        tenant, min(matches, key=lambda row: row["number"])
+                    )
                 except IssueError:
-                    raise IssueError("GITHUB_INVALID_RESPONSE", retryable=True) from None
+                    raise IssueError(
+                        "GITHUB_INVALID_RESPONSE", retryable=True
+                    ) from None
             if len(rows) < 100:
                 return None
         raise IssueError("GITHUB_RECONCILIATION_LIMIT")

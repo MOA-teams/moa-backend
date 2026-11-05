@@ -64,8 +64,13 @@ async def enqueue_issue(
     target, candidates, references = await issue_context(session, group)
     if not include_suspected_code:
         candidates, references = [], []
-    investigation = "코드 후보: " + (", ".join(f"{c['path']} ({c['commit_sha']})" for c in candidates) or "검증된 후보 없음")
-    investigation += "\n관련 커밋: " + (", ".join(sorted({c["commit_sha"] for c in candidates})) or "없음")
+    investigation = "코드 후보: " + (
+        ", ".join(f"{c['path']} ({c['commit_sha']})" for c in candidates)
+        or "검증된 후보 없음"
+    )
+    investigation += "\n관련 커밋: " + (
+        ", ".join(sorted({c["commit_sha"] for c in candidates})) or "없음"
+    )
     body = "\n".join(
         [
             f"## 문의 요약\n{symptom} 문의 급증",

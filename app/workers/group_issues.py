@@ -134,7 +134,11 @@ async def process(factory, job_id, token, gateway):
             _, _, job = await locked(session, job_id, token)
             if job is None:
                 return
-            if job.phase == "reconcile" and payload.get("github_target") is None and prepared.get("github_target"):
+            if (
+                job.phase == "reconcile"
+                and payload.get("github_target") is None
+                and prepared.get("github_target")
+            ):
                 raise IssueError("GITHUB_TARGET_UNKNOWN")
             job.payload = prepared
             payload = prepared
