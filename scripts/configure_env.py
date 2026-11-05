@@ -22,39 +22,61 @@ REQUIRED_KEYS = ("DATABASE_URL", "JWT_SECRET_KEY", "AWS_REGION", "S3_BUCKET_NAME
 SERVICES = ("moa-backend", "moa-documents-worker")
 
 
+class EnvFileError(ValueError):
+    """외부 예외 원문 대신 코드와 코드에서 정한 설명만 공개한다."""
+    def __init__(self, code: str, detail: str):
+        self.code = code
+        self.detail = detail
+        super().__init__(f"{code}: {detail}")
+
+
 def parse_environment(content: str) -> dict[str, str]:
-    if not content.strip() or len(content.encode("utf-8")) > 65536 or "\x00" in content:
-        raise ValueError("환경파일 크기 또는 형식 오류")
+    if not content.strip():
+        raise EnvFileError("ENV_FILE_EMPTY", "ENV_FILE 내용이 비어 있습니다.")
+    if len(content.encode("utf-8")) > 65536 or "\x00" in content:
+        raise EnvFileError("ENV_FILE_FORMAT_INVALID", "환경파일 크기 또는 문자 형식을 확인하세요.")
     result = {}
     for binding in parse_stream(io.StringIO(content)):
         if binding.error:
-            raise ValueError("환경파일 문법 오류")
+            raise EnvFileError("ENV_FILE_SYNTAX_INVALID", f"dotenv {binding.original.line}번째 줄의 문법을 확인하세요.")
         if binding.key is None:
             continue
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", binding.key) or binding.value is None or binding.key in result:
-            raise ValueError("환경파일 키 오류")
+            raise EnvFileError("ENV_FILE_KEY_INVALID", f"dotenv {binding.original.line}번째 줄의 키·중복 여부를 확인하세요.")
         # shell 명령·변수 치환을 실행하지 않는다. $와 %도 Secret의 원문 값이다.
         result[binding.key] = binding.value
-    if any(not result.get(key, "").strip() for key in REQUIRED_KEYS):
-        raise ValueError("필수 설정 누락")
+    missing = [key for key in REQUIRED_KEYS if not result.get(key, "").strip()]
+    if missing:
+        raise EnvFileError("ENV_FILE_REQUIRED_MISSING", "필수 설정 누락: " + ", ".join(missing))
     return result
 
 
 def runtime_environment(raw: dict[str, str]) -> dict[str, str]:
     # 모든 Settings 필드를 명시해 배포 프로세스의 과거 환경변수가 검증에 섞이지 않게 한다.
     values = {name: raw.get(name.upper(), field.default) for name, field in Settings.model_fields.items()}
-    settings = Settings(_env_file=None, **values)
+    try:
+        settings = Settings(_env_file=None, **values)
+    except ValidationError as exc:
+        fields = sorted({str(error["loc"][0]).upper() for error in exc.errors(include_input=False, include_url=False)
+                         if error["loc"] and error["loc"][0] in Settings.model_fields})
+        raise EnvFileError("ENV_FILE_SETTINGS_INVALID", "설정 형식 확인: " + ", ".join(fields)) from None
     try:
         url = make_url(settings.database_url.get_secret_value())
     except ArgumentError:
-        raise ValueError("DB URL 형식 오류") from None
+        raise EnvFileError("ENV_FILE_DATABASE_URL_INVALID", "DATABASE_URL 형식을 확인하세요.") from None
     if url.drivername != "postgresql+asyncpg" or not url.database:
-        raise ValueError("DB URL 형식 오류")
+        raise EnvFileError("ENV_FILE_DATABASE_URL_INVALID", "DATABASE_URL은 DB 이름을 포함한 postgresql+asyncpg URL이어야 합니다.")
     ai = urlsplit(settings.ai_base_url)
     if ai.scheme not in ("http", "https") or not ai.hostname or ai.username or ai.password or ai.query or ai.fragment:
-        raise ValueError("AI URL 형식 오류")
-    ai.port  # 잘못된 포트 표현도 검증한다.
-    s3 = validate_s3({key: raw.get(key, "") for key in ("AWS_REGION", "S3_BUCKET_NAME", "S3_PRESIGNED_URL_EXPIRE_SECONDS")})
+        raise EnvFileError("ENV_FILE_AI_URL_INVALID", "AI_BASE_URL은 계정·query·fragment가 없는 HTTP(S) 주소여야 합니다.")
+    try:
+        ai.port  # 외부 ValueError에는 입력한 포트 값이 들어갈 수 있으므로 원문을 숨긴다.
+    except ValueError:
+        raise EnvFileError("ENV_FILE_AI_URL_INVALID", "AI_BASE_URL의 포트를 확인하세요.") from None
+    try:
+        s3 = validate_s3({key: raw.get(key, "") for key in ("AWS_REGION", "S3_BUCKET_NAME", "S3_PRESIGNED_URL_EXPIRE_SECONDS")})
+    except ValueError:
+        raise EnvFileError("ENV_FILE_S3_INVALID", "AWS_REGION·S3_BUCKET_NAME·S3_PRESIGNED_URL_EXPIRE_SECONDS 형식을 확인하세요.") from None
     result = dict(raw)
     for name in Settings.model_fields:
         value = getattr(settings, name)
@@ -108,11 +130,37 @@ def apply_environment(app_dir: Path, content: str):
         raise ValueError("서비스 환경파일 경로 오류")
     values = runtime_environment(parse_environment(content))
     # 마이그레이션 실패 시 기존 .env와 서비스 설정은 그대로 유지한다.
-    subprocess.run([str(app_dir / ".venv/bin/alembic"), "upgrade", "head"], cwd=app_dir,
-                   env={**os.environ, **values}, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    write_private(app_dir / ".env", content)
-    write_private(app_dir / ".env.systemd", systemd_environment(values))
-    install_service_environment(app_dir)
+    try:
+        subprocess.run([str(app_dir / ".venv/bin/alembic"), "upgrade", "head"], cwd=app_dir,
+                       env={**os.environ, **values}, check=True, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.PIPE, text=True, errors="replace")
+    except subprocess.CalledProcessError as exc:
+        # stderr는 메모리에서 분류만 한다. SQL·접속 문자열·비밀번호는 출력하지 않는다.
+        output = exc.stderr or ""
+        diagnoses = (
+            (("InvalidPasswordError", "InvalidAuthorizationSpecificationError", "password authentication failed"), "DB_AUTH_FAILED", "운영 DATABASE_URL의 계정·비밀번호를 확인하세요."),
+            (("ConnectionRefusedError", "Connection refused"), "DB_CONNECTION_REFUSED", "운영 DATABASE_URL의 호스트·포트를 확인하세요."),
+            (("TimeoutError", "Timeout expired", "timeout expired"), "DB_CONNECTION_TIMEOUT", "DB 주소·네트워크·보안 그룹을 확인하세요."),
+            (("gaierror", "Name or service not known"), "DB_HOST_UNRESOLVED", "DB 호스트 이름을 확인하세요."),
+            (("InvalidCatalogNameError",), "DB_NOT_FOUND", "운영 DATABASE_URL의 DB 이름을 확인하세요."),
+            (("InsufficientPrivilegeError",), "DB_PERMISSION_DENIED", "마이그레이션 계정의 스키마·테이블 변경 권한을 확인하세요."),
+            (("Can't locate revision identified by", "Multiple head revisions"), "DB_REVISION_CONFLICT", "서버 코드와 DB Alembic revision을 확인하세요."),
+        )
+        for markers, code, detail in diagnoses:
+            if any(marker in output for marker in markers):
+                raise EnvFileError(code, detail) from None
+        raise EnvFileError("DB_MIGRATION_FAILED", f"Alembic이 종료 코드 {exc.returncode}로 실패했습니다. DB 스키마와 revision을 확인하세요.") from None
+    except OSError:
+        raise EnvFileError("DB_MIGRATION_START_FAILED", "서버의 .venv/bin/alembic 실행 파일·권한을 확인하세요.") from None
+    try:
+        write_private(app_dir / ".env", content)
+        write_private(app_dir / ".env.systemd", systemd_environment(values))
+    except OSError:
+        raise EnvFileError("ENV_FILE_WRITE_FAILED", "마이그레이션은 성공했지만 환경파일 저장에 실패했습니다. 디렉터리 권한·디스크 공간을 확인하세요.") from None
+    try:
+        install_service_environment(app_dir)
+    except (OSError, subprocess.CalledProcessError):
+        raise EnvFileError("SERVICE_ENV_INSTALL_FAILED", "환경파일은 저장되었지만 systemd 설정 설치에 실패했습니다. sudo 권한을 확인하세요.") from None
 
 
 def main() -> int:
@@ -120,8 +168,11 @@ def main() -> int:
         if sys.argv[1:]:
             raise ValueError("지원하지 않는 옵션")
         apply_environment(Path.cwd().resolve(), sys.stdin.read(65537))
-    except (ValueError, ValidationError, OSError, subprocess.CalledProcessError):
-        print("ENV_FILE 반영 실패: 필수 설정·dotenv 문법·DB 연결 및 마이그레이션·파일 설치 권한을 확인하세요. 설정 값은 출력하지 않습니다.", file=sys.stderr)
+    except EnvFileError as exc:
+        print(f"ENV_FILE 반영 실패 [{exc.code}]: {exc.detail} 설정 값은 출력하지 않습니다.", file=sys.stderr)
+        return 1
+    except (ValueError, OSError, subprocess.CalledProcessError):
+        print("ENV_FILE 반영 실패 [ENV_FILE_INPUT_FAILED]: 입력 형식·경로·파일 접근 권한을 확인하세요. 설정 값은 출력하지 않습니다.", file=sys.stderr)
         return 1
     print("ENV_FILE 검증·DB 마이그레이션·서비스 설정 저장 완료")
     return 0
