@@ -47,6 +47,8 @@ async def test_reconfirmation_question_and_new_reply(client, customer, auto_case
     ).status_code == 200
     page = await chat(client, customer, auto_case)
     assert page["response_progress"]["state"] == "awaiting_customer"
+    assert page["messages"][-1]["sender"] == "ai_auto"
+    assert page["messages"][-1]["message_type"] == "정보 수집 질문"
     assert "서비스와 관련해" in page["messages"][-1]["text"]
     old_basis = page["response_progress"]["based_on_message_id"]
     new = await client.post(
@@ -105,3 +107,34 @@ async def test_closed_inquiry_stops_progress(
         await session.commit()
     page = await chat(client, customer, auto_case)
     assert page["response_progress"]["state"] == "closed"
+
+
+@pytest.mark.parametrize("mode", ["direct", "approved_ai_draft", "edited_ai_draft"])
+async def test_human_delivery_is_agent_even_when_ai_wrote_the_draft(
+    client,
+    customer,
+    agent,
+    inquiry,
+    session_factory,
+    ai,
+    mode,
+):
+    from test_answers import detail, with_draft, body_from, send
+
+    if mode == "direct":
+        view = await detail(client, agent, inquiry)
+    else:
+        view, _ = await with_draft(client, agent, inquiry, session_factory, ai)
+    payload = body_from(view)
+    if mode == "edited_ai_draft":
+        payload["answer_text"] = "담당자가 확인하고 수정한 안내입니다."
+    response = await send(client, agent, inquiry, payload)
+    assert response.status_code == 201, response.text
+    page = await chat(client, customer, [inquiry["inquiry_id"]])
+    final = page["messages"][-1]
+    assert final["sender"] == "agent"
+    assert final["message_type"] == "최종 답변"
+    assert final["answer_id"] == response.json()["answer_id"]
+    assert page["response_progress"]["state"] == "answered"
+    audited = await detail(client, agent, inquiry)
+    assert audited["answers"][-1]["delivery_mode"] == "담당자"
