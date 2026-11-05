@@ -2,6 +2,7 @@ import asyncio
 from contextlib import suppress
 from app.core.config import get_settings
 from app.workers.analysis import run_forever
+from app.workers.groups import run_forever as run_groups
 from app.db.session import async_session_factory
 from app.api.pipeline import router as pipeline_router
 from collections.abc import AsyncIterator
@@ -19,6 +20,7 @@ from app.db.session import engine
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     task=asyncio.create_task(run_forever(async_session_factory)) if get_settings().ai_pipeline_worker_enabled else None
+    groups_task=asyncio.create_task(run_groups(async_session_factory)) if get_settings().groups_worker_enabled else None
     try:
         yield
     finally:
@@ -26,6 +28,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+        if groups_task:
+            groups_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await groups_task
         await engine.dispose()
 
 

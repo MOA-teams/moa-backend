@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     ai_service_token: SecretStr | None = None
     ai_callback_token: SecretStr | None = None
     ai_pipeline_worker_enabled: bool = False
+    groups_worker_enabled: bool = False
     auto_response_policies: dict[TenantID, AutoResponsePolicy] = Field(default_factory=dict)
     aws_region: str | None = None
     s3_bucket_name: str | None = None

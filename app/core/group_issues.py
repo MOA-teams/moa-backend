@@ -1,0 +1,87 @@
+"""8단계와 연결할 좁은 Issue 경계. 검증된 설치 토큰·저장소만 주입한다.
+
+현재 기본 공급자는 미연결이다. HTTP 구현은 설치 검증을 대신하지 않으며,
+8단계 통합 시 검증된 target을 전달해야 한다. 임의 환경 토큰을 읽지 않는다.
+"""
+from dataclasses import dataclass
+import re
+
+import httpx
+
+
+class IssueError(Exception):
+    def __init__(self, code, *, retryable=False, uncertain=False):
+        self.code, self.retryable, self.uncertain = code, retryable, uncertain
+        super().__init__(code)
+
+
+class UnavailableIssueGateway:
+    async def ready(self, tenant):
+        return False
+
+
+def get_issue_gateway():
+    return UnavailableIssueGateway()
+
+
+@dataclass(frozen=True)
+class VerifiedIssueTarget:
+    repository: str
+    token: str
+
+
+class HttpIssueGateway:
+    def __init__(self, targets: dict[str, VerifiedIssueTarget], *, transport=None):
+        self.targets, self.transport = targets, transport
+        for target in targets.values():
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", target.repository):
+                raise ValueError("검증된 GitHub 저장소 경로가 필요합니다.")
+
+    async def ready(self, tenant):
+        return tenant in self.targets
+
+    async def _request(self, tenant, method, *, payload=None, page=None):
+        target = self.targets[tenant]
+        try:
+            async with httpx.AsyncClient(base_url="https://api.github.com", timeout=10, transport=self.transport) as client:
+                response = await client.request(method, f"/repos/{target.repository}/issues",
+                    headers={"Authorization": f"Bearer {target.token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"},
+                    json=payload, params={"state": "all", "per_page": 100, "page": page} if page else None)
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            raise IssueError("GITHUB_CONNECTION_FAILED", retryable=True) from None
+        except httpx.HTTPError:
+            raise IssueError("GITHUB_RESPONSE_UNKNOWN", retryable=method == "GET", uncertain=method == "POST") from None
+        if response.status_code == (201 if method == "POST" else 200):
+            try:
+                return response.json()
+            except ValueError:
+                raise IssueError("GITHUB_INVALID_RESPONSE", retryable=method == "GET", uncertain=method == "POST") from None
+        if response.status_code == 429 or (response.status_code == 403 and (response.headers.get("x-ratelimit-remaining") == "0" or response.headers.get("retry-after"))):
+            raise IssueError("GITHUB_RATE_LIMITED", retryable=True)
+        if response.status_code in (401, 403, 404, 422):
+            raise IssueError("GITHUB_REQUEST_REJECTED")
+        raise IssueError("GITHUB_UNAVAILABLE", retryable=method == "GET", uncertain=method == "POST")
+
+    def _url(self, tenant, row):
+        number = row.get("number") if isinstance(row, dict) else None
+        expected = f"https://github.com/{self.targets[tenant].repository}/issues/{number}"
+        if type(number) is not int or number < 1 or row.get("html_url") != expected:
+            raise IssueError("GITHUB_INVALID_RESPONSE", uncertain=True)
+        return expected
+
+    async def find(self, tenant, marker):
+        # 제한에 도달했으면 '없음'으로 단정하지 않는다. PR도 /issues에 나오므로 제외한다.
+        for page in range(1, 101):
+            rows = await self._request(tenant, "GET", page=page)
+            if not isinstance(rows, list):
+                raise IssueError("GITHUB_INVALID_RESPONSE", retryable=True)
+            matches = [row for row in rows if isinstance(row, dict) and "pull_request" not in row and marker in (row.get("body") or "")]
+            if matches:
+                return self._url(tenant, min(matches, key=lambda row: row.get("number", 0)))
+            if len(rows) < 100:
+                return None
+        raise IssueError("GITHUB_RECONCILIATION_LIMIT")
+
+    async def create(self, tenant, payload):
+        row = await self._request(tenant, "POST", payload={key:payload[key] for key in ("title", "body", "labels")})
+        return self._url(tenant, row)

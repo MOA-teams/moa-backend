@@ -4,6 +4,13 @@ from typing import Any
 from app.schemas.common import ErrorResponse
 
 API_DESCRIPTION = """
+## 그룹·급증·알림
+- `/admin/groups`에서 최근 5분 문의 수와 급증(8건 이상)을 조회합니다. 10분 무접수 시 장애 구간이 종료됩니다.
+- `/admin/alerts`의 읽음 상태는 담당자별입니다. PATCH `read=true`는 최초 읽음 시각을 보존합니다.
+- 그룹 상세의 episode_id로 GitHub Issue를 요청합니다. `202`는 저장 완료이며 GitHub 미연결 시 `대기/GITHUB_INTEGRATION_NOT_READY`입니다.
+- Issue 결과가 `확인 필요`이면 생성 여부가 불명확해 재생성을 차단한 상태입니다. 임의 새 키로 중복 생성하지 마세요.
+- 운영자는 별도 프로세스 `python -m app.workers.groups` 또는 `GROUPS_WORKER_ENABLED=true`로 구간 만료·요약 동기화·Issue 복구를 실행합니다.
+
 ## 담당자 답변·종료·평가
 - 담당자 상세의 revision·latest_customer_message_id·backend_knowledge_revision으로 POST /admin/inquiries/{id}/answers를 호출합니다. 초안 ID/revision은 함께 지정하거나 직접 작성 시 둘 다 null입니다.
 - 최종 답변은 채팅 메시지와 함께 저장된 뒤 201입니다. 고객은 기존 폴링으로 확인합니다. AI 검수 결과와 사람의 승인은 구분됩니다.
