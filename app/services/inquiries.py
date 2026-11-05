@@ -15,6 +15,7 @@ from app.schemas.inquiries import (
     InquiryChatResponse, InquiryCreateRequest, InquiryCreateResponse,
     MessageCreateRequest, MessageCreateResponse, MessageResponse,
 )
+from app.services.analysis import enqueue_analysis
 from app.services.attachments import attachment_not_found, require_tenant
 
 ACKNOWLEDGEMENT = "접수됐어요. 문의를 확인하고 있어요."
@@ -83,6 +84,7 @@ async def create_inquiry(session: AsyncSession, *, user: AuthenticatedUser, payl
         await session.flush()
         for attachment in attachments:
             attachment.message_id = first.message_id
+        await enqueue_analysis(session, inquiry)
         response = InquiryCreateResponse(inquiry_id=inquiry.public_id, status=inquiry.status,
                                          auto_message=MessageResponse.model_validate(acknowledgement))
         record.response = response.model_dump(mode="json")
@@ -118,6 +120,7 @@ async def add_message(session: AsyncSession, *, user: AuthenticatedUser, inquiry
         await session.flush()
         for attachment in attachments:
             attachment.message_id = message.message_id
+        await enqueue_analysis(session, inquiry)
         response = MessageCreateResponse(message_id=message.public_id, inquiry_id=inquiry_id,
                                          inquiry_revision=inquiry.revision, status=inquiry.status)
         record.response = response.model_dump(mode="json")

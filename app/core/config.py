@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     jwt_secret_key: SecretStr
     access_token_expire_seconds: int = Field(default=3600, gt=0)
     refresh_token_expire_days: int = Field(default=7, gt=0)
+    ai_base_url: str | None = None
+    ai_service_token: SecretStr | None = None
+    ai_callback_token: SecretStr | None = None
+    ai_pipeline_worker_enabled: bool = False
     aws_region: str | None = None
     s3_bucket_name: str | None = None
     s3_presigned_url_expire_seconds: int = Field(default=300, gt=0, le=3600)
