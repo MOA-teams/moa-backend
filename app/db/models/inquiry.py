@@ -18,6 +18,7 @@ class Inquiry(BaseEntity):
         Index("ix_inquiries_tenant_created_id", "tenant_id", "created_at", "inquiry_id"),
         Index("ix_inquiries_customer_id", "customer_id"),
         CheckConstraint("revision > 0 AND last_message_sequence >= 0", name="ck_inquiries_revision_sequence"),
+        CheckConstraint("customer_last_read_sequence >= 0 AND agent_last_read_sequence >= 0", name="ck_inquiries_read_sequences"),
     )
 
     inquiry_id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -40,6 +41,20 @@ class Inquiry(BaseEntity):
     )
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     last_message_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    customer_last_read_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    agent_last_read_sequence: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+
+
+class InquirySessionEvent(BaseEntity):
+    __tablename__ = "inquiry_session_events"
+    __table_args__ = (
+        Index("ix_inquiry_session_events_inquiry_event", "inquiry_id", "event_id"),
+        CheckConstraint("type IN ('left', 'new_chat', 'returned')", name="ck_inquiry_session_events_type"),
+    )
+
+    event_id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    inquiry_id: Mapped[int] = mapped_column(ForeignKey("inquiries.inquiry_id", ondelete="CASCADE"), nullable=False)
+    type: Mapped[str] = mapped_column(String(20), nullable=False)
 
 
 class Message(BaseEntity):

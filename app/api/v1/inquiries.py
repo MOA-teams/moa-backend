@@ -10,6 +10,8 @@ from app.deps.db import get_db
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.inquiries import InquiryChatResponse, InquiryCreateRequest, InquiryCreateResponse, MessageCreateRequest, MessageCreateResponse
 from app.services.inquiries import add_message, create_inquiry, get_customer_chat
+from app.schemas.inquiries import ReadRequest, ReadResponse, SessionEventRequest, SessionEventResponse
+from app.services.inquiry_activity import record_read, record_session_event
 
 router = APIRouter(prefix="/inquiries", tags=["inquiries"], dependencies=[Depends(require_roles(UserRole.CUSTOMER))])
 IdempotencyKey = Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=200, pattern=r"^[!-~]+$", description="논리 요청마다 생성한 UUID 등 ASCII 키. 재시도에는 같은 키·본문을 사용하고 새 메시지에는 새 키를 사용하세요.")]
@@ -17,6 +19,34 @@ InquiryId = Annotated[str, Path(pattern=r"^Q-[0-9]{4}$", description="외부 문
 Cursor = Annotated[str | None, Query(max_length=2048, description="서버의 next_cursor를 그대로 전달. 최초 조회는 생략합니다.")]
 Limit = Annotated[int, Query(ge=1, le=100, description="페이지 크기. 기본 20, 최대 100")]
 COMMON_ERRORS = ("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "FORBIDDEN", "TENANT_REQUIRED")
+
+
+@router.post(
+    "/{inquiry_id}/session-events", response_model=SessionEventResponse,
+    summary="고객 상담 이탈·복귀 기록",
+    description="본인 문의에 left(창 닫힘), new_chat(새 상담), returned(복귀)를 기록합니다. 창 닫힘은 Authorization과 JSON 본문을 포함한 fetch keepalive로 보냅니다. Idempotency-Key는 필요 없습니다. 연속 중복 이벤트는 재저장하지 않고, new_chat 뒤 left는 기존 사유를 유지합니다. 문의 상태·revision·메시지·AI 분석은 변경하지 않습니다. 복귀 시 left_at·left_reason은 null입니다.",
+    responses=documented_errors(*COMMON_ERRORS, "INQUIRY_NOT_FOUND", bearer_auth=True),
+)
+async def session_event(
+    inquiry_id: InquiryId, payload: SessionEventRequest,
+    user: Annotated[AuthenticatedUser, Depends(get_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> SessionEventResponse:
+    return await record_session_event(session, user=user, inquiry_id=inquiry_id, payload=payload)
+
+
+@router.post(
+    "/{inquiry_id}/read", response_model=ReadResponse,
+    summary="고객 읽음 위치 기록",
+    description="본인 문의의 마지막으로 읽은 메시지 ID를 보냅니다. 문의 내 메시지 순서로만 전진하며 중복·과거 요청은 현재 위치를 반환합니다. Idempotency-Key는 필요 없습니다. 상태·revision·AI 분석은 변경하지 않습니다.",
+    responses=documented_errors(*COMMON_ERRORS, "INQUIRY_NOT_FOUND", "MESSAGE_NOT_FOUND", bearer_auth=True),
+)
+async def read(
+    inquiry_id: InquiryId, payload: ReadRequest,
+    user: Annotated[AuthenticatedUser, Depends(get_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> ReadResponse:
+    return await record_read(session, user=user, inquiry_id=inquiry_id, payload=payload)
 
 
 @router.post(

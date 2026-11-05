@@ -17,6 +17,7 @@ from app.schemas.inquiries import (
 )
 from app.services.analysis import enqueue_analysis
 from app.services.attachments import attachment_not_found, require_tenant
+from app.services.inquiry_activity import read_message_id
 
 ACKNOWLEDGEMENT = "접수됐어요. 문의를 확인하고 있어요."
 
@@ -164,4 +165,7 @@ async def get_customer_chat(session: AsyncSession, *, user: AuthenticatedUser, i
     if inquiry is None:
         raise inquiry_not_found()
     messages, next_cursor, has_more = await message_page(session, inquiry=inquiry, user=user, cursor=cursor, limit=limit)
-    return InquiryChatResponse(inquiry_id=inquiry_id, status=inquiry.status, messages=messages, next_cursor=next_cursor, has_more=has_more)
+    return InquiryChatResponse(
+        inquiry_id=inquiry_id, status=inquiry.status, messages=messages, next_cursor=next_cursor, has_more=has_more,
+        agent_last_read_message_id=await read_message_id(session, inquiry, inquiry.agent_last_read_sequence),
+    )

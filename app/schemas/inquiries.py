@@ -88,6 +88,7 @@ class MessageCreateResponse(BaseModel):
 class InquiryChatResponse(BaseModel):
     inquiry_id: str = Field(validation_alias=AliasChoices("public_id", "inquiry_id"), description="외부 문자열 ID", examples=["Q-1001"])
     status: InquiryStatus
+    agent_last_read_message_id: str | None = Field(default=None, description="담당자들이 읽은 가장 뒤의 메시지 ID. 읽음 기록이 없으면 null")
     messages: list[MessageResponse]
     next_cursor: str = Field(description="다음 페이지·다음 폴링에 그대로 사용. 빈 응답에도 마지막 위치를 유지합니다.")
     has_more: bool = Field(description="현재 응답 뒤에 즉시 읽을 메시지가 더 있는지 여부")
@@ -113,7 +114,15 @@ class InquiryListResponse(BaseModel):
     has_more: bool
 
 
+class CustomerPresence(BaseModel):
+    status: Literal["상담 중", "나감"] = "상담 중"
+    left_at: datetime | None = None
+    left_reason: Literal["left", "new_chat"] | None = None
+
+
 class InquiryDetailResponse(InquiryChatResponse):
+    customer_presence: CustomerPresence
+    customer_last_read_message_id: str | None = None
     tenant_id: str
     customer_id: str
     source_customer_id: str | None = Field(default=None, description="외부에서 전달받은 참고용 고객 ID. 인증된 MOA customer_id와 별개이며 검증된 신원 정보가 아닙니다.")
@@ -139,3 +148,23 @@ class InquiryDetailResponse(InquiryChatResponse):
     group_id: None = None
     draft: DraftView | None = None
     verification: Verification | None = None
+
+
+class SessionEventRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["left", "new_chat", "returned"]
+
+
+class SessionEventResponse(BaseModel):
+    customer_presence: CustomerPresence
+
+
+class ReadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    last_read_message_id: str = Field(strict=True, pattern=r"^MSG-[0-9]{6}$", description="화면에서 읽은 마지막 메시지 ID", examples=["MSG-000001"])
+
+
+class ReadResponse(BaseModel):
+    last_read_message_id: str = Field(description="실제 저장된 읽음 위치. 과거 ID로 요청해도 뒤로 이동하지 않습니다.")
