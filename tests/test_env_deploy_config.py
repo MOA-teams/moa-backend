@@ -66,12 +66,14 @@ def test_migration_uses_new_values_and_files_are_private(monkeypatch, tmp_path):
     commands, dropins = [], []
     def run(command, **kwargs):
         commands.append(command)
-        assert kwargs["stdout"] is subprocess.DEVNULL and kwargs["stderr"] is subprocess.DEVNULL
+        assert kwargs["stdout"] is subprocess.DEVNULL
         assert "test-only-" not in " ".join(command)
         if command[-2:] == ["upgrade", "head"]:
+            assert kwargs["stderr"] is subprocess.PIPE
             assert not (tmp_path / ".env").exists()
             assert kwargs["env"]["AI_SERVICE_TOKEN"] == "test-only-$token-%value"
         elif command[:4] == ["sudo", "install", "-m", "0600"]:
+            assert kwargs["stderr"] is subprocess.DEVNULL
             dropins.append(command[-1])
             source = Path(command[4])
             assert source.stat().st_mode & 0o777 == 0o600
@@ -92,7 +94,7 @@ def test_migration_failure_keeps_old_files(monkeypatch, tmp_path):
     def fail(command, **kwargs):
         raise subprocess.CalledProcessError(1, command)
     monkeypatch.setattr(configure_env.subprocess, "run", fail)
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(configure_env.EnvFileError, match="DB_MIGRATION_FAILED"):
         configure_env.apply_environment(tmp_path, PAYLOAD)
     assert all((tmp_path / name).read_text() == "old-config" for name in (".env", ".env.systemd"))
 
@@ -115,3 +117,60 @@ def test_cli_invalid_database_does_not_print_values_or_traceback(tmp_path):
     assert result.returncode == 1
     assert "private-invalid-database-url" not in result.stdout + result.stderr
     assert "Traceback" not in result.stderr
+    assert "ENV_FILE_DATABASE_URL_INVALID" in result.stderr
+
+
+@pytest.mark.parametrize("detail,code", [
+    ("asyncpg.exceptions.InvalidPasswordError: password authentication failed for user private-user", "DB_AUTH_FAILED"),
+    ("asyncpg.exceptions.InvalidAuthorizationSpecificationError: private-user", "DB_AUTH_FAILED"),
+    ("ConnectionRefusedError: private-host", "DB_CONNECTION_REFUSED"),
+    ("TimeoutError: private-connection", "DB_CONNECTION_TIMEOUT"),
+    ("socket.gaierror: private-host", "DB_HOST_UNRESOLVED"),
+    ("InvalidCatalogNameError: private-database", "DB_NOT_FOUND"),
+    ("InsufficientPrivilegeError: private-table", "DB_PERMISSION_DENIED"),
+    ("Can't locate revision identified by private-revision", "DB_REVISION_CONFLICT"),
+    ("private-sql private-password unexpected failure", "DB_MIGRATION_FAILED"),
+])
+def test_migration_failure_reports_only_safe_category(detail, code, monkeypatch, tmp_path):
+    def fail(command, **kwargs):
+        raise subprocess.CalledProcessError(1, command, stderr=detail)
+    monkeypatch.setattr(configure_env.subprocess, "run", fail)
+    with pytest.raises(configure_env.EnvFileError) as error:
+        configure_env.apply_environment(tmp_path, PAYLOAD)
+    assert error.value.code == code
+    assert "private-" not in str(error.value)
+    assert not (tmp_path / ".env").exists()
+
+
+def test_missing_fields_and_syntax_errors_are_actionable_without_values():
+    with pytest.raises(configure_env.EnvFileError) as missing:
+        configure_env.parse_environment("DATABASE_URL=private-url\n")
+    assert missing.value.code == "ENV_FILE_REQUIRED_MISSING"
+    assert "JWT_SECRET_KEY" in missing.value.detail and "AI_SERVICE_TOKEN" in missing.value.detail
+    assert "private-url" not in str(missing.value)
+    with pytest.raises(configure_env.EnvFileError) as syntax:
+        configure_env.parse_environment("# comment\nTOKEN='private-secret\n")
+    assert syntax.value.code == "ENV_FILE_SYNTAX_INVALID"
+    assert "2번째" in syntax.value.detail and "private-secret" not in str(syntax.value)
+
+
+def test_settings_field_error_does_not_expose_invalid_value():
+    raw = configure_env.parse_environment(PAYLOAD)
+    raw["ACCESS_TOKEN_EXPIRE_SECONDS"] = "private-invalid-value"
+    with pytest.raises(configure_env.EnvFileError) as error:
+        configure_env.runtime_environment(raw)
+    assert error.value.code == "ENV_FILE_SETTINGS_INVALID"
+    assert "ACCESS_TOKEN_EXPIRE_SECONDS" in error.value.detail
+    assert "private-invalid-value" not in str(error.value)
+
+
+def test_service_install_failure_is_distinct_from_migration(monkeypatch, tmp_path):
+    def run(command, **kwargs):
+        if command[0] == "sudo":
+            raise subprocess.CalledProcessError(1, command, stderr="private-systemd-value")
+    monkeypatch.setattr(configure_env.subprocess, "run", run)
+    with pytest.raises(configure_env.EnvFileError) as error:
+        configure_env.apply_environment(tmp_path, PAYLOAD)
+    assert error.value.code == "SERVICE_ENV_INSTALL_FAILED"
+    assert "private-systemd-value" not in str(error.value)
+    assert (tmp_path / ".env").is_file()
