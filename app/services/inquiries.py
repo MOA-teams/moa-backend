@@ -26,7 +26,11 @@ def inquiry_not_found() -> APIError:
 
 async def begin_idempotent_request(session: AsyncSession, *, user_id: int, path: str, key: str, payload) -> IdempotencyRecord:
     key_hash = hashlib.sha256(key.encode()).hexdigest()
-    request_hash = hashlib.sha256(json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    request_data = payload.model_dump(mode="json")
+    # 선택 필드 추가 전 저장한 요청 해시와 호환해 기존 문의 재시도가 409가 되지 않도록 한다.
+    if request_data.get("source_customer_id") is None:
+        request_data.pop("source_customer_id", None)
+    request_hash = hashlib.sha256(json.dumps(request_data, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
     # 같은 키의 INSERT는 선행 트랜잭션 완료를 기다린다. 실패한 요청의 placeholder도 함께 롤백된다.
     await session.execute(insert(IdempotencyRecord).values(
         user_id=user_id, path=path, key_hash=key_hash, request_hash=request_hash,
@@ -64,6 +68,7 @@ async def create_inquiry(session: AsyncSession, *, user: AuthenticatedUser, payl
             return response
         attachments = await lock_attachments(session, user=user, attachment_ids=payload.attachments)
         inquiry = Inquiry(tenant_id=tenant_id, customer_id=user.user_id, title=payload.message.strip()[:100],
+                          source_customer_id=payload.source_customer_id,
                           customer_category=payload.customer_category, env=payload.env.model_dump(),
                           status=InquiryStatus.RECEIVED, revision=1, last_message_sequence=2)
         session.add(inquiry)

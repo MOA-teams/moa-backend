@@ -21,6 +21,7 @@ class InquiryCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str = Field(min_length=1, max_length=10000, description="첫 고객 메시지. 공백만 있는 본문은 거절합니다.", examples=["저장할 때 E-502가 떠요."])
+    source_customer_id: str | None = Field(default=None, max_length=128, description="싱크노트 cid 등 외부 고객 식별 문자열. 문의 참고 정보이며 인증·소유권·기업 소속 판단에 사용하지 않습니다.", examples=["U-2001", None])
     customer_category: InquiryCategory = Field(default=InquiryCategory.OTHER, description="고객이 선택한 분류. AI 분류와 구분하며 영어 값만 받습니다.")
     env: InquiryEnvironment = Field(default_factory=InquiryEnvironment, description="고객 앱 환경 정보")
     attachments: list[ResourceId] = Field(default_factory=list, max_length=10, description="먼저 업로드한 본인 첨부의 숫자 ID. 중복·다른 메시지에 연결된 첨부는 허용하지 않습니다.")
@@ -113,6 +114,7 @@ class InquiryListResponse(BaseModel):
 class InquiryDetailResponse(InquiryChatResponse):
     tenant_id: str
     customer_id: int
+    source_customer_id: str | None = Field(default=None, description="외부에서 전달받은 참고용 고객 ID. 인증된 MOA customer_id와 별개이며 검증된 신원 정보가 아닙니다.")
     title: str
     revision: int
     customer_category: InquiryCategory

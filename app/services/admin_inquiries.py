@@ -59,7 +59,7 @@ async def get_inquiry_detail(
     ).order_by(Message.sequence.desc()).limit(1))
     return InquiryDetailResponse(
         **{field: getattr(inquiry, field) for field in (
-            "inquiry_id", "status", "tenant_id", "customer_id", "title", "revision", "customer_category",
+            "inquiry_id", "status", "tenant_id", "customer_id", "source_customer_id", "title", "revision", "customer_category",
             "env", "category", "urgency", "created_at", "updated_at",
         )},
         messages=messages, next_cursor=next_cursor, has_more=has_more,

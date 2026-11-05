@@ -43,6 +43,8 @@ async def listing(
     summary="본인 기업의 문의 상세와 대화 조회",
     description="""agent/admin이 본인 기업의 문의만 조회합니다. 다른 기업의 문의는 404입니다.
 원문 대화·고객 선택 분류·환경·revision·최신 고객 메시지 ID를 반환합니다.
+source_customer_id는 싱크노트 등 외부에서 전달받은 참고용 식별 문자열이며, 실제 인증 고객은 customer_id입니다.
+기존 문의 또는 외부 ID 없이 접수한 문의의 source_customer_id는 null입니다. 이 필드는 담당자 상세에만 제공합니다.
 메시지는 고객 조회와 같은 cursor 규칙이며 최초 생략, 이후 next_cursor로 폴링합니다.
 아직 구현하지 않은 AI 실행·초안·그룹·검수 필드는 null입니다. 조회만으로 상태를 변경하지 않습니다.
 첨부 다운로드는 각 attachment_id로 /attachments/{id}를 호출합니다.""",
