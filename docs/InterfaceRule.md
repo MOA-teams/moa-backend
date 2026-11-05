@@ -4,7 +4,7 @@
 > **⚠ 결정 필요** 표시가 붙은 항목은 팀 합의 후 값을 채우고 이 문서를 v1.0으로 올린다.
 > 데이터 확정일 이후에는 필드 이름·enum을 바꾸지 않는다. 바꿔야 하면 맨 아래 변경 이력에 남긴다.
 
-> 2026-11-05 구현 합의: K01~K03 공개 API는 숫자 doc_id와 영문 enum을 사용한다. 아래 DOC-xxx·한글 문서 값은 시드·AI 경계 계약으로 유지하며 backend가 변환한다. 상세는 APISpec의 지식 등록 API 및 ImplementationRoadmap을 따른다.
+> 2026-11-05 5·6단계 기준: 공개 API는 문자열 ID·한글 enum을 사용한다. 4단계의 숫자 문서 ID·영문 enum 합의를 대체한다. 상세는 APISpec과 AnswerOperations를 따른다.
 
 ---
 
@@ -469,3 +469,9 @@ config/prod.env.example       보안 시연용 가짜 키
 | 구현 합의 | 2026-11-05 | K01~K03 공개 문서 ID는 숫자, doc_type·status·indexing_status는 영문 enum 사용. AI 경계의 DOC-xxx·한글 값은 유지하며 backend가 변환 |
 | v0.3 | 2026-11-04 | 5-3 커밋 표를 싱크노트 개발명세서와 맞춤 (E-502 수정은 별도 브랜치), 리셋에 `pricing-start` 태그 반영 |
 | v0.2 | 2026-11-04 | 별점 없는 상담(대화 반응) 추가, 변경 전·후 정책 문서(DOC-001 v1/v2, DOC-002 v2/v3)와 `demo/` 폴더, `answer_id` 메시지 연결, 정답 라벨 확장, 무결성 규칙(2-8) 추가 |
+
+## 6단계 운영 답변·평가 적용
+
+[답변 연동 계약](AnswerOperations.md)을 따른다. 운영 API는 5단계의 문자열 ID·한글 enum을 사용한다. 답변은 A-1001부터 발급하며 최종 메시지의 answer_id와 답변 원장을 연결한다. 원본 초안과 최종 본문은 분리 보존한다.
+
+agent_edit_ratio는 `1 - SequenceMatcher(None, 원본, 최종, autojunk=False).ratio()`를 소수 네 자리로 저장하며 직접 작성은 null이다. 고객 평가는 종료 시 마지막 답변에 한 번만 연결한다. 별점·해결 여부는 독립적이며 labels/customer_reaction을 운영 입력으로 사용하지 않는다. 시드의 재개 예시는 과거 대화 데이터이고 현재 운영 API는 종료된 상담을 재개하지 않는다. 우수 답변 선정은 이번 단계에서 실행하지 않는다.
