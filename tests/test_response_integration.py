@@ -313,7 +313,7 @@ async def test_each_released_migration_branch_upgrades_without_data_loss(
             assert (await c.execute(text(sql))).all() == before[table]
         assert (
             await c.execute(text("SELECT version_num FROM alembic_version"))
-        ).scalars().all() == ["0011_answers_automatic"]
+        ).scalars().all() == ["0012_groups_alerts"]
         if revision == "0010_answers":
             assert await c.scalar(text("SELECT nextval('public_answer_seq')")) == 1002
         else:
