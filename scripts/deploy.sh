@@ -63,19 +63,24 @@ fi
 
 sudo systemctl restart "$SERVICE"
 # 설치되어 실행 중인 worker도 동일한 설정으로 재시작한다. 미설치 worker를 새로 시작하지 않는다.
-WORKER_RESTARTED=0
-if sudo systemctl is-active --quiet moa-documents-worker; then
-  sudo systemctl restart moa-documents-worker
-  WORKER_RESTARTED=1
-fi
+RESTARTED_WORKERS=""
+for worker in moa-documents-worker moa-github-worker; do
+  if sudo systemctl is-active --quiet "$worker"; then
+    sudo systemctl restart "$worker"
+    RESTARTED_WORKERS="$RESTARTED_WORKERS $worker"
+  fi
+done
 
 # 헬스체크: 기동될 때까지 최대 ~20초 대기
 for i in $(seq 1 10); do
   if curl -fsS -o /dev/null http://127.0.0.1:8000/docs; then
-    if [ "$WORKER_RESTARTED" = "1" ] && ! sudo systemctl is-active --quiet moa-documents-worker; then
-      echo "document worker health check failed" >&2
-      exit 1
-    fi
+    # 고정된 서비스 이름만 저장하므로 Bash 3의 빈 배열/nounset 문제 없이 순회한다.
+    for worker in $RESTARTED_WORKERS; do
+      if ! sudo systemctl is-active --quiet "$worker"; then
+        echo "$worker health check failed" >&2
+        exit 1
+      fi
+    done
     echo "deploy ok ($(git rev-parse --short HEAD))"
     exit 0
   fi

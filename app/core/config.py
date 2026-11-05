@@ -24,9 +24,26 @@ class Settings(BaseSettings):
     ai_service_token: SecretStr | None = None
     ai_callback_token: SecretStr | None = None
     ai_pipeline_worker_enabled: bool = False
+    github_app_id: str | None = None
+    github_app_slug: str | None = None
+    github_client_id: str | None = None
+    github_client_secret: SecretStr | None = None
+    github_app_private_key_base64: SecretStr | None = None
+    github_webhook_secret: SecretStr | None = None
+    github_redirect_uri: str | None = None
     aws_region: str | None = None
     s3_bucket_name: str | None = None
     s3_presigned_url_expire_seconds: int = Field(default=300, gt=0, le=3600)
+
+    @field_validator("github_redirect_uri")
+    @classmethod
+    def validate_github_redirect(cls, value):
+        if value:
+            parsed = urlsplit(value)
+            local = parsed.hostname in {"localhost", "127.0.0.1"}
+            if (parsed.scheme != "https" and not (local and parsed.scheme == "http")) or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+                raise ValueError("등록된 HTTPS GitHub 콜백 URL이 필요합니다. 로컬 개발은 HTTP를 허용합니다.")
+        return value
 
     @field_validator("ai_base_url")
     @classmethod
