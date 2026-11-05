@@ -1,11 +1,15 @@
 from copy import deepcopy
+from functools import partial
 import json
 
+import anyio
 import httpx
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import func, select
 
 from scripts.burst_replay import ReplayError, load_plan, main, normalize_base, replay
+from app.db.models import AnalysisRequest, Inquiry, Message
 
 
 @pytest.fixture
@@ -153,3 +157,76 @@ def test_wrong_actor_never_creates_inquiry_or_run_state(seed_file, tmp_path, act
                 duration=0,
             )
     assert not state.exists()
+
+
+@pytest.mark.anyio
+async def test_lost_api_response_resumes_once_with_real_postgres_contract(
+    client,
+    customer,
+    session_factory,
+    seed_file,
+    tmp_path,
+):
+    plan, state = load_plan(seed_file), tmp_path / "state.json"
+
+    class Bridge:
+        lose_response = True
+        keys = []
+
+        def get(self, path):
+            return anyio.from_thread.run(
+                partial(client.get, path, headers=customer["headers"])
+            )
+
+        def post(self, path, *, json, headers):
+            self.keys.append(headers["Idempotency-Key"])
+            response = anyio.from_thread.run(
+                partial(
+                    client.post,
+                    path,
+                    json=json,
+                    headers={**customer["headers"], **headers},
+                )
+            )
+            assert response.status_code == 201, response.text
+            if self.lose_response:
+                self.lose_response = False
+                raise httpx.ReadTimeout("response lost after commit")
+            return response
+
+    bridge = Bridge()
+    run = partial(
+        replay,
+        bridge,
+        plan,
+        base="http://test",
+        tenant="alpha",
+        state_path=state,
+        duration=0,
+    )
+    with pytest.raises(httpx.ReadTimeout):
+        await anyio.to_thread.run_sync(run)
+    assert json.loads(state.read_text())["results"] == {}
+    await anyio.to_thread.run_sync(run)
+    assert bridge.keys[0] == bridge.keys[1]
+    saved = json.loads(state.read_text())
+    assert len(saved["results"]) == 3
+    assert "Bearer" not in state.read_text() and "저장" not in state.read_text()
+    async with session_factory() as session:
+        assert await session.scalar(select(func.count()).select_from(Inquiry)) == 3
+        assert await session.scalar(select(func.count()).select_from(Message)) == 6
+        assert (
+            await session.scalar(select(func.count()).select_from(AnalysisRequest)) == 3
+        )
+        rows = list(
+            (await session.scalars(select(Inquiry).order_by(Inquiry.inquiry_id))).all()
+        )
+        assert all(
+            row.customer_id == customer["internal_id"] and row.tenant_id == "alpha"
+            for row in rows
+        )
+        assert [r.source_customer_id for r in rows] == [
+            p["body"]["source_customer_id"] for p in plan
+        ]
+        assert [r.env for r in rows] == [p["body"]["env"] for p in plan]
+        assert all(not row.is_seed for row in rows)
