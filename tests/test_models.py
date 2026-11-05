@@ -60,7 +60,7 @@ async def test_migration_matches_models_and_supports_downgrade(db_engine, migrat
         differences = await connection.run_sync(lambda conn: compare_metadata(MigrationContext.configure(conn), Base.metadata))
         assert differences == []
         tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-        assert set(tables) == {"users", "refresh_tokens", "alembic_version"}
+        assert set(tables) == {"users", "refresh_tokens", "tenants", "alembic_version"}
         columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
         identity = next(column for column in columns if column["name"] == "user_id")
         assert identity["identity"]["start"] == 1
@@ -90,3 +90,27 @@ async def test_refresh_migration_preserves_existing_users(db_engine, migrate):
         await connection.run_sync(migrate, "downgrade", "0001_create_users")
         assert not await connection.run_sync(lambda conn: inspect(conn).has_table("refresh_tokens"))
         assert (await connection.execute(text("SELECT user_id,email,password,role,created_at,updated_at FROM users"))).one() == before
+
+
+async def test_tenant_migration_preserves_accounts_and_tokens(db_engine, migrate):
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "downgrade", "0002_create_refresh_tokens")
+        await connection.execute(text("INSERT INTO users(email,password,role) VALUES ('tenant-preserve@example.com','test-only','admin')"))
+        await connection.execute(text("INSERT INTO refresh_tokens(user_id,token_hash,expires_at) VALUES (1,:token_hash,now() + interval '7 days')"), {"token_hash": "a" * 64})
+        users_before = (await connection.execute(text("SELECT user_id,email,password,role,created_at,updated_at FROM users"))).all()
+        tokens_before = (await connection.execute(text("SELECT * FROM refresh_tokens"))).all()
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "upgrade", "head")
+        assert (await connection.execute(text("SELECT user_id,email,password,role,created_at,updated_at FROM users"))).all() == users_before
+        assert (await connection.execute(text("SELECT * FROM refresh_tokens"))).all() == tokens_before
+        assert await connection.scalar(text("SELECT tenant_id FROM users")) is None
+        assert await connection.scalar(text("SELECT count(*) FROM tenants")) == 0
+        await connection.execute(text("INSERT INTO tenants(tenant_id,name) VALUES ('syncnote','싱크노트')"))
+        await connection.execute(text("UPDATE users SET tenant_id='syncnote'"))
+        # 소속 연결 전후 보존 검사는 명시적으로 선택한 기본 계정 필드를 대상으로 한다.
+        linked_users = (await connection.execute(text("SELECT user_id,email,password,role,created_at,updated_at FROM users"))).all()
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "downgrade", "0002_create_refresh_tokens")
+        assert not await connection.run_sync(lambda conn: inspect(conn).has_table("tenants"))
+        assert (await connection.execute(text("SELECT user_id,email,password,role,created_at,updated_at FROM users"))).all() == linked_users
+        assert (await connection.execute(text("SELECT * FROM refresh_tokens"))).all() == tokens_before

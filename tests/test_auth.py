@@ -184,7 +184,7 @@ async def test_secrets_are_not_logged_or_returned_in_errors(client, account, ses
     assert hashed_password not in login.text + refreshed.text
 
 
-async def test_production_api_has_no_me_or_protected_endpoint(client):
+async def test_production_api_has_me_but_no_test_protected_endpoint(client):
     spec = (await client.get("/openapi.json")).json()
-    assert "/api/v1/auth/me" not in spec["paths"] and "/protected" not in spec["paths"]
+    assert "/api/v1/auth/me" in spec["paths"] and "/protected" not in spec["paths"]
     assert set(spec["components"]["schemas"]["TokenResponse"]["properties"]) == {"access_token", "refresh_token"}

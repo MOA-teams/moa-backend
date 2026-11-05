@@ -30,7 +30,7 @@ async def assert_rejected(client, token):
 async def test_get_user_returns_only_public_account_fields(protected_client, account, tokens):
     response = await protected_client.get("/protected", headers={"Authorization": f"Bearer {tokens['access_token']}"})
     assert response.status_code == 200
-    assert response.json() == {"user_id": account["user_id"], "email": account["email"], "role": "customer"}
+    assert response.json() == {"user_id": account["user_id"], "email": account["email"], "role": "customer", "tenant_id": None}
 
 
 @pytest.mark.parametrize("headers", [{}, {"Authorization": "Basic abc"}, {"Authorization": "Bearer"}])
