@@ -14,17 +14,41 @@
 URL 소지자는 만료 전까지 접근할 수 있다. URL을 DB나 로그에 저장하지 않는다. AWS 임시 자격 증명이 먼저 만료되면 URL도 더 일찍 만료될 수 있다.
 AWS 자격 증명이나 S3 key를 프론트 요청으로 받지 않는다. 비공개 key는 DB에서만 조회하며 외부에는 첨부 ID를 사용한다.
 
+## 운영진 제공 환경
+
+- 팀 버킷은 hackathon-e3-t03-data이며 신규 버킷을 만들지 않는다. 팀 내에서 prefix를 구분해 사용한다.
+- 팀 서버는 도쿄 ap-northeast-1이다. AWS_REGION secret에는 실제 버킷 리전을 확인한 값을 넣는다. Kiro 로그인 리전 us-east-1과 구분한다.
+- 운영진 안내에 따라 서버에 이미 부여된 S3 권한을 사용한다. Access Key를 생성하거나 GitHub Secrets에 AWS 자격 증명을 추가하지 않는다.
+- 현재 MOA 객체 prefix는 attachments/이다. 해당 prefix의 PutObject/GetObject/DeleteObject와 브라우저 presigned URL 접근이 허용되는지 서버에서 확인한다.
+- uploads/가 필수 prefix인 정책이면 경로 조정이 필요하다. 안내의 폴더 예시만으로 필수 제한을 가정하지 않는다.
+
+## GitHub Secrets → 서버 설정
+
+저장소 Settings → Secrets and variables → Actions에 아래 이름으로 등록한다.
+
+| Secret | 사용 |
+|---|---|
+| AWS_REGION | 실제 버킷 리전, 필수 |
+| S3_BUCKET_NAME | 운영진 제공 버킷 이름, 필수 |
+| S3_PRESIGNED_URL_EXPIRE_SECONDS | 선택, 없으면 300초. 허용 범위 1~3600 |
+
+- main push/merge 후 CI 성공 시 workflow가 설정을 검증해 JSON으로 SSH stdin에 전달한다. 값은 원격 명령 문자열·GitHub 로그에 출력하지 않는다.
+- 서버는 scripts/configure_s3.py로 설정을 다시 검증하고 /etc/systemd/system/moa-backend.service.d/zz-moa-s3.conf에 root 소유 0600으로 저장한다. 기존 db.conf와 프로젝트 .env는 수정하지 않는다.
+- 배포 순서는 의존성 설치 → DB 마이그레이션 → S3 설정 저장 → systemd daemon-reload → 서비스 재시작 → 헬스체크다. 어느 단계든 실패하면 성공으로 표시하지 않는다.
+- 필수 secret이 없거나 설정 값·쓰기 권한이 올바르지 않으면 배포가 실패한다. GitHub 환경(Environment) 전용 secret은 현재 workflow에 environment 지정이 없으므로 저장소 수준에서 사용할 수 있도록 등록해야 한다.
+- 이 작업에서는 운영진 버킷에 접속하거나 서버 설정을 직접 변경하지 않았다. main 병합 후 배포에서 반영된다.
+
 ## 인프라 담당자가 해야 할 일
 
-- 개발·운영의 MOA 첨부 전용 비공개 버킷을 각각 생성하고 해당 환경 백엔드와 같은 리전을 사용한다.
+- 운영진 제공 버킷의 실제 리전과 MOA prefix 접근 권한을 확인한다. 별도 버킷 생성은 요청하지 않는다.
 - Block Public Access 전체 활성화, Bucket owner enforced로 ACL 비활성화, 기본 SSE-S3 적용.
 - 버킷 정책에서 aws:SecureTransport=false를 거절한다.
-- 백엔드 EC2에 IAM Role을 연결하고 해당 버킷 `attachments/*`에만 아래 권한을 허용한다.
+- 기존 서버 권한에 아래 작업이 허용되는지 확인한다. 부족한 권한은 운영진에게 요청한다. MOA는 해당 버킷 `attachments/*`만 사용한다.
   - s3:PutObject
   - s3:GetObject
   - s3:DeleteObject
 - EC2가 S3 HTTPS 엔드포인트에 접근할 수 있도록 한다. 사용자가 브라우저에서 다운로드해야 하므로 모든 GET을 EC2/VPC 전용으로 제한하지 않는다.
-- 로컬에는 개발 버킷에만 접근할 수 있는 AWS profile 인증 방법을 제공한다. 운영 장기 Access Key를 나눠 쓰지 않는다.
+- 서버 Role은 로컬 PC에 자동 적용되지 않는다. 로컬 테스트는 S3 대역을 사용하고 실제 연동은 제공된 서버에서 확인한다. 운영진이 별도로 허용한 profile이 있을 때만 로컬 실제 S3 접근을 사용한다.
 - S3 CORS는 아래 origin의 GET·HEAD만 허용한다. 실제 사용 origin이 바뀌면 백엔드 담당자에게도 전달한다.
   - http://localhost:5173
   - http://localhost:3000
@@ -32,7 +56,7 @@ AWS 자격 증명이나 S3 key를 프론트 요청으로 받지 않는다. 비�
   - https://moa-admin-teal.vercel.app
 - 브라우저가 업로드할 곳은 백엔드이므로 S3 PUT CORS는 필요하지 않다. CORS 자체가 S3 접근 권한을 부여하는 것은 아니다.
 - 백엔드 HTTPS·인증서·리버스 프록시를 구성하고 프록시 본문 제한을 12MiB로 설정한다. 파일 제한 10MiB와 multipart 부가 용량을 구분한다.
-- 운영 프로세스에 AWS_REGION, S3_BUCKET_NAME, S3_PRESIGNED_URL_EXPIRE_SECONDS를 주입한다.
+- GitHub Secrets 세 값을 등록하고, 배포 계정이 전용 systemd 설정 파일 설치·daemon-reload·재시작을 실행할 수 있는지 확인한다.
 - 배포 시 신규 코드·의존성 준비 후 Alembic upgrade head를 실행하고 성공한 경우에만 서버를 재시작한다.
 - main 반영 시 CI 성공 후 배포 스크립트가 Alembic을 항상 실행한다. 기본 /etc/systemd/system/moa-backend.service.d/db.conf가 있으면 기존 형식의 DATABASE_URL·JWT_SECRET_KEY를 읽고, 없으면 실행 환경 또는 프로젝트 .env를 사용한다. 파일이 없다는 이유로 마이그레이션을 건너뛰지 않는다. 설정 누락·DB 접속·마이그레이션 실패 시 서버를 재시작하지 않고 배포를 실패 처리한다.
 - 스키마 변경은 커밋된 Alembic revision을 upgrade head로 자동 적용한다. 같은 revision은 재배포 시 다시 적용하지 않는다. 새 모델 변경에는 migration 파일도 함께 커밋해야 한다.
@@ -41,9 +65,9 @@ AWS 자격 증명이나 S3 key를 프론트 요청으로 받지 않는다. 비�
 
 ## 인프라 담당자가 전달할 정보
 
-- 환경별 버킷 이름과 리전.
+- 지정된 버킷의 실제 리전과 prefix 제한 여부.
 - EC2 IAM Role 이름 또는 ARN, 권한 적용·접속 확인 결과.
-- 로컬 개발 AWS profile 이름과 인증 방법. 장기 비밀 키를 문서·저장소에 기록하지 않는다.
+- 로컬 실제 접근이 별도로 허용된 경우에만 profile 인증 방법. 장기 비밀 키는 생성·공유하지 않는다.
 - 최종 백엔드 HTTPS 주소, 프론트 origin과 적용된 S3 CORS 목록.
 - 서버 환경변수 주입 방식, 프록시 업로드 제한·마이그레이션 실행 반영 여부.
 
@@ -83,7 +107,7 @@ python -m uvicorn app.main:app --reload --port 8001
 
 ## 실제 버킷 준비 후 확인 순서
 
-- 개발 환경 S3 설정·AWS profile 인증을 적용한다.
+- 제공된 서버에서 배포로 반영된 S3 설정과 서버 권한을 사용한다. 로컬 실제 접근은 별도 허용이 있을 때만 진행한다.
 - customer 계정으로 로그인하고 기업 소속을 연결한다.
 - Swagger에서 PNG/JPEG/PDF를 업로드하고 attachment_id·메타데이터·한시적 URL을 확인한다.
 - 서명이 없는 객체 URL이 공개되지 않는지 확인한다.
@@ -92,7 +116,7 @@ python -m uvicorn app.main:app --reload --port 8001
 - 문의 연결 전 타인의 임시 첨부는 같은 기업 agent도 404인지 확인한다.
 - presigned URL 다운로드·만료·재발급, 프론트 fetch/PDF 표시의 S3 CORS를 확인한다.
 - S3 설정이 없는 프로세스에서 첨부 요청만 503이고 첨부 없는 문의·헬스체크는 정상인지 확인한다.
-- 테스트 업로드는 개발 버킷에서만 수행하고 검증 후 수동 정리한다.
+- 테스트 업로드는 MOA가 사용하는 prefix 안에서만 수행하고 다른 팀원의 data/outputs는 건드리지 않는다. 검증 객체는 연결 유무를 확인한 후 수동 정리한다.
 
 ## 실패·정리 범위
 

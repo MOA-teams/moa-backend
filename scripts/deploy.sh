@@ -5,6 +5,16 @@ set -euo pipefail
 APP_DIR="${MOA_APP_DIR:-$HOME/moa-backend}"
 SERVICE="moa-backend"
 
+# Git/pip가 SSH stdin을 소비하기 전에 설정 payload를 권한 제한 임시 파일에 보관한다.
+if [ "${1:-}" = "--configure-s3" ]; then
+  S3_CONFIG_FILE=$(mktemp)
+  trap 'rm -f "$S3_CONFIG_FILE"' EXIT
+  cat > "$S3_CONFIG_FILE"
+elif [ "$#" -ne 0 ]; then
+  echo "지원하지 않는 배포 옵션입니다." >&2
+  exit 1
+fi
+
 cd "$APP_DIR"
 git fetch --quiet origin main
 git reset --hard origin/main
@@ -26,6 +36,11 @@ echo "DB migration start"
 # 설정 누락·접속 오류·DDL 실패는 set -e로 배포를 중단해 재시작을 막는다.
 .venv/bin/alembic upgrade head
 echo "DB migration complete"
+
+if [ "${1:-}" = "--configure-s3" ]; then
+  .venv/bin/python scripts/configure_s3.py < "$S3_CONFIG_FILE"
+  sudo systemctl daemon-reload
+fi
 
 sudo systemctl restart "$SERVICE"
 
