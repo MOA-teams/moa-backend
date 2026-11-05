@@ -561,14 +561,14 @@ async def test_migration_roundtrip_preserves_existing_inquiry(
     db_engine, migrate, inquiry
 ):
     async with db_engine.begin() as connection:
-        before = (await connection.execute(text("SELECT * FROM inquiries"))).all()
+        before = (await connection.execute(text("SELECT to_jsonb(i) - ARRAY['group_pk','normalized_error_code','received_at','is_seed'] FROM inquiries i"))).all()
         await connection.run_sync(migrate, "downgrade", "0010_answers")
         assert (
-            await connection.execute(text("SELECT * FROM inquiries"))
+            await connection.execute(text("SELECT to_jsonb(i) - ARRAY['group_pk','normalized_error_code','received_at','is_seed'] FROM inquiries i"))
         ).all() == before
         await connection.run_sync(migrate, "upgrade", "head")
         assert (
-            await connection.execute(text("SELECT * FROM inquiries"))
+            await connection.execute(text("SELECT to_jsonb(i) - ARRAY['group_pk','normalized_error_code','received_at','is_seed'] FROM inquiries i"))
         ).all() == before
 
 

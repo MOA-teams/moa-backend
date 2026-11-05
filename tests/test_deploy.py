@@ -107,6 +107,8 @@ fi
 if [ "$1" = "systemctl" ] && [ "$2" = "restart" ]; then
   if [ "$3" = "moa-documents-worker" ]; then
     echo worker-restart >> "$DEPLOY_TEST_EVENTS"
+  elif [ "$3" = "moa-groups-worker" ]; then
+    echo groups-worker-restart >> "$DEPLOY_TEST_EVENTS"
   else
     echo restart >> "$DEPLOY_TEST_EVENTS"
   fi
@@ -320,3 +322,10 @@ def test_legacy_s3_mode_cannot_override_new_env_file(deployment):
     second, events = deployment.run(args=("--configure-s3",), payload="{}")
     assert second.returncode != 0
     assert events.count("migration upgrade head") == 1
+
+
+def test_running_groups_worker_restarts_after_migration(deployment):
+    deployment.configure("environment")
+    result, events = deployment.run(DEPLOY_TEST_WORKER_ACTIVE="1")
+    assert result.returncode == 0, result.stderr
+    assert events.index("migration upgrade head") < events.index("groups-worker-restart") < events.index("health")

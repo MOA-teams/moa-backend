@@ -81,7 +81,8 @@ def test_migration_uses_new_values_and_files_are_private(monkeypatch, tmp_path):
             assert "test-only" not in content
     monkeypatch.setattr(configure_env.subprocess, "run", run)
     configure_env.apply_environment(tmp_path, PAYLOAD)
-    assert len(dropins) == 3 and any("moa-documents-worker" in path for path in dropins)
+    assert len(dropins) == 4
+    assert all(any(service in path for path in dropins) for service in configure_env.SERVICES)
     assert (tmp_path / ".env").read_text() == PAYLOAD
     assert all((tmp_path / name).stat().st_mode & 0o777 == 0o600 for name in (".env", ".env.systemd"))
 
