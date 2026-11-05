@@ -60,7 +60,7 @@ async def test_migration_matches_models_and_supports_downgrade(db_engine, migrat
         differences = await connection.run_sync(lambda conn: compare_metadata(MigrationContext.configure(conn), Base.metadata))
         assert differences == []
         tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-        assert set(tables) == {"users", "refresh_tokens", "tenants", "alembic_version"}
+        assert set(tables) == {"users", "refresh_tokens", "tenants", "inquiries", "messages", "attachments", "idempotency_records", "alembic_version"}
         columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
         identity = next(column for column in columns if column["name"] == "user_id")
         assert identity["identity"]["start"] == 1
@@ -114,3 +114,37 @@ async def test_tenant_migration_preserves_accounts_and_tokens(db_engine, migrate
         assert not await connection.run_sync(lambda conn: inspect(conn).has_table("tenants"))
         assert (await connection.execute(text("SELECT user_id,email,password,role,created_at,updated_at FROM users"))).all() == linked_users
         assert (await connection.execute(text("SELECT * FROM refresh_tokens"))).all() == tokens_before
+
+
+async def test_inquiry_migration_preserves_auth_data_and_removes_only_new_schema(db_engine, migrate):
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "downgrade", "0003_create_tenants")
+        await connection.execute(text("INSERT INTO tenants(tenant_id,name) VALUES ('alpha','Alpha')"))
+        await connection.execute(text("INSERT INTO users(email,password,role,tenant_id) VALUES ('phase3@example.com','test-only','customer','alpha')"))
+        await connection.execute(text("INSERT INTO refresh_tokens(user_id,token_hash,expires_at) VALUES (1,:hash,now() + interval '7 days')"), {"hash": "b" * 64})
+        users = (await connection.execute(text("SELECT * FROM users"))).all()
+        tenants = (await connection.execute(text("SELECT * FROM tenants"))).all()
+        tokens = (await connection.execute(text("SELECT * FROM refresh_tokens"))).all()
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "upgrade", "head")
+        assert (await connection.execute(text("SELECT * FROM users"))).all() == users
+        assert (await connection.execute(text("SELECT * FROM tenants"))).all() == tenants
+        assert (await connection.execute(text("SELECT * FROM refresh_tokens"))).all() == tokens
+        for enum, expected in {
+            "inquiry_category": ["usage", "account", "billing", "bug", "feature_request", "other"],
+            "inquiry_urgency": ["high", "normal", "low"],
+            "inquiry_status": ["received", "in_review", "needs_info", "answered", "closed"],
+            "message_sender": ["customer", "agent", "ai_auto"],
+            "message_type": ["customer_message", "acknowledgement", "information_request", "final_answer"],
+        }.items():
+            labels = (await connection.execute(text("SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname=current_schema() AND t.typname=:name ORDER BY e.enumsortorder"), {"name": enum})).scalars().all()
+            assert labels == expected
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "downgrade", "0003_create_tenants")
+        tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
+        assert set(tables) == {"users", "refresh_tokens", "tenants", "alembic_version"}
+        assert (await connection.execute(text("SELECT * FROM users"))).all() == users
+        assert (await connection.execute(text("SELECT * FROM refresh_tokens"))).all() == tokens
+        assert not await connection.scalar(text("SELECT EXISTS(SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname=current_schema() AND t.typname='inquiry_status')"))
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "upgrade", "head")
