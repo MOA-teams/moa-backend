@@ -12,6 +12,8 @@
 
 - 2026-11-05: 격리 PostgreSQL 전체 pytest **490개 통과**(skip 없음). GitHub 전용 33개로 설치 인증·보안 필터·Webhook 중복/역순·소스 차단·문서 연계·AI 유실 복구·lease 재시작·CORS를 검증했다. 기존 인증·문의·문서·AI·답변·배포 회귀와 모델/마이그레이션 일치·왕복·기존 데이터 보존도 통과했다. 실제 App/AI 연결 검증과 구분한다.
 
+- 7단계 병합 후 `main`(`021e68e`)을 통합했다. 두 설정과 모델을 보존하고 `0012_github_automatic`으로 마이그레이션 분기를 합친다. GitHub 동기화 중인 문서는 자동 답변에서도 검토 대기로 전환한다. 통합 후 격리 PostgreSQL 전체 pytest **571개 통과**(skip 없음). 기존 GitHub 분기에서의 마이그레이션 왕복·원본 보존과 자동 발송 차단 5개를 추가 검증했다.
+
 ## 6단계 구현 기준
 
 - `feat/ai-integration`의 `053bd33`에서 `feat/agent-answers`로 분기한다. 5단계의 공개 문자열 ID·한글 enum 계약을 따른다. 아래 숫자 ID·영문 enum 설명은 3·4단계 당시 기록이며 현재 계약은 APISpec·Swagger가 기준이다.
