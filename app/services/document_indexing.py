@@ -5,7 +5,7 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from app.core.enums import DocStatus, IndexingStatus
-from app.core.rag import AI_STATUS, INDEX_STATUS, RagError
+from app.core.rag import AI_DOC_TYPE, AI_STATUS, INDEX_STATUS, RagError
 from app.db.models import Document, DocumentJob, DocumentVersion
 
 TERMINAL_PHASES = ("done", "failed", "superseded")
@@ -38,7 +38,7 @@ def source_payload(document, version, *, revision=None, status=None, review=None
         "status": status if status is not None else AI_STATUS[version.status],
         "review_required": version.review_required if review is None else review,
         "content_hash": version.content_hash,
-        "metadata": {"doc_type": version.doc_type.value, "created_at": version.authored_at.isoformat()},
+        "metadata": {"doc_type": AI_DOC_TYPE[version.doc_type], "created_at": version.authored_at.isoformat()},
         "evidence": {"docs": [], "code": []},
     }
 
@@ -113,6 +113,8 @@ async def confirm_barrier(session, job_id, rag):
             job.phase = "done"
         else:
             job.phase = "extract"
+            version.indexing_status = IndexingStatus.PENDING
+            version.indexing_error = None
         await session.commit()
     except RagError as exc:
         fail_job(job, version, exc)
