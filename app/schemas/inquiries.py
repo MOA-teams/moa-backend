@@ -1,3 +1,4 @@
+from app.schemas.analysis import AutomaticResponseView
 from app.schemas.answers import AnswerAudit, FeedbackResponse, ResolutionStatus
 from app.schemas.analysis import Analysis, SimilarInquiries, DraftView, Verification
 from app.core.enums import RunStatus, DraftResult
@@ -121,6 +122,7 @@ class InquiryListResponse(BaseModel):
 
 
 class InquiryDetailResponse(InquiryChatResponse):
+    automatic_response: AutomaticResponseView | None = None
     backend_knowledge_revision: int
     answers: list[AnswerAudit] = Field(default_factory=list)
     tenant_id: str

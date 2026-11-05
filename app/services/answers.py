@@ -3,7 +3,7 @@
 import asyncio
 from difflib import SequenceMatcher
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.enums import (
@@ -183,15 +183,45 @@ async def verify_evidence(session, inquiry, evidence, rag):
 
 
 async def persist_answer(
-    session, *, inquiry, customer, user, payload, knowledge_revision, draft, run
+    session,
+    *,
+    inquiry,
+    customer,
+    user,
+    payload,
+    knowledge_revision,
+    draft,
+    run,
+    automatic_approval=None,
 ):
     """호출자가 권한·최신성 검사와 잠금을 완료한다. commit은 호출자의 멱등 응답과 함께 한다."""
+    automatic = automatic_approval is not None
+    if automatic != (user is None):
+        raise ValueError("발송 주체와 승인 기록이 일치해야 합니다.")
+    duplicates = [Answer.inquiry_revision == inquiry.revision]
+    if draft is not None:
+        duplicates.append(
+            (Answer.draft_id == draft.draft_id)
+            & (Answer.based_on_message_id == customer.message_id)
+        )
+    if automatic:
+        duplicates.append(Answer.based_on_message_id == customer.message_id)
+    if await session.scalar(
+        select(Answer.answer_id)
+        .where(
+            Answer.inquiry_id == inquiry.inquiry_id,
+            or_(*duplicates),
+        )
+        .limit(1)
+    ):
+        conflict("ANSWER_ALREADY_SENT", "이미 발송된 답변입니다.")
     now = utcnow()
+    mode = "자동" if automatic else "담당자"
     inquiry.last_message_sequence += 1
     message = Message(
         inquiry_id=inquiry.inquiry_id,
         sequence=inquiry.last_message_sequence,
-        sender=MessageSender.AGENT,
+        sender=MessageSender.AI_AUTO if automatic else MessageSender.AGENT,
         message_type=MessageType.FINAL_ANSWER,
         text=payload.answer_text,
         sent_at=now,
@@ -208,18 +238,19 @@ async def persist_answer(
         draft_id=draft.draft_id if draft else None,
         draft_revision=draft.revision if draft else None,
         run_id=run.run_id if run else None,
-        agent_id=user.internal_user_id,
-        delivery_mode="담당자",
+        agent_id=None if automatic else user.internal_user_id,
+        delivery_mode=mode,
         answer_text=payload.answer_text,
         evidence=payload.evidence.model_dump(mode="json"),
         original_draft=draft.content if draft else None,
         original_verification=run.result.get("verification") if run else None,
         approval={
-            "approved_by": user.user_id,
+            "approved_by": None if automatic else user.user_id,
             "approved_at": now.isoformat(),
             "text_modified": modified,
             "review_reasons": draft.review_reasons if draft else [],
-            "approval_type": "담당자 승인",
+            "approval_type": "자동 응대 정책" if automatic else "담당자 승인",
+            **({"automatic_response": automatic_approval} if automatic else {}),
         },
         agent_edit_ratio=(
             round(
@@ -232,7 +263,7 @@ async def persist_answer(
                 ).ratio(),
                 4,
             )
-            if draft
+            if draft and not automatic
             else None
         ),
         answered_at=now,
@@ -248,8 +279,8 @@ async def persist_answer(
         inquiry_id=inquiry.public_id,
         inquiry_revision=inquiry.revision,
         status=inquiry.status,
-        delivery_mode="담당자",
-        agent_id=user.user_id,
+        delivery_mode=mode,
+        agent_id=None if automatic else user.user_id,
         answered_at=now,
     )
 
@@ -402,7 +433,9 @@ async def submit_feedback(session, *, user, inquiry_id, payload, key):
             inquiry.resolution_status = (
                 "미확인"
                 if payload.resolved is None
-                else "해결 확인" if payload.resolved else "미해결"
+                else "해결 확인"
+                if payload.resolved
+                else "미해결"
             )
             response = feedback_response(inquiry, feedback, answer.public_id)
             record.response = response.model_dump(mode="json")

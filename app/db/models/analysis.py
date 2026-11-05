@@ -39,6 +39,7 @@ class AnalysisRequest(BaseEntity):
     based_on_message_id: Mapped[int] = mapped_column(
         ForeignKey("messages.message_id", ondelete="CASCADE"), nullable=False
     )
+    knowledge_snapshot: Mapped[dict | None] = mapped_column(JSONB)
     snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
     review_only: Mapped[bool] = mapped_column(Boolean, nullable=False)
     run_status: Mapped[RunStatus] = mapped_column(

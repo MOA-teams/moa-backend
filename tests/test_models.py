@@ -61,7 +61,7 @@ async def test_migration_matches_models_and_supports_downgrade(db_engine, migrat
         differences = await connection.run_sync(lambda conn: compare_metadata(MigrationContext.configure(conn), Base.metadata))
         assert differences == []
         tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-        assert set(tables) == {"users", "refresh_tokens", "tenants", "inquiries", "messages", "attachments", "idempotency_records", "analysis_requests", "analysis_runs", "analysis_drafts", "classification_history", "answers", "feedback", "alembic_version", "documents", "document_versions", "document_counters", "document_jobs", "github_authorizations", "github_integrations", "github_events", "github_jobs", "github_sources"}
+        assert set(tables) == {"users", "refresh_tokens", "tenants", "inquiries", "messages", "attachments", "idempotency_records", "analysis_requests", "analysis_runs", "analysis_drafts", "classification_history", "answers", "feedback", "alembic_version", "documents", "document_versions", "document_counters", "document_jobs", "github_authorizations", "github_integrations", "github_events", "github_jobs", "github_sources", "automatic_responses"}
         columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
         identity = next(column for column in columns if column["name"] == "user_id")
         assert identity["identity"]["start"] == 1

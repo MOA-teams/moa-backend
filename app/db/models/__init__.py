@@ -17,6 +17,7 @@ __all__ += ["Document", "DocumentCounter", "DocumentJob", "DocumentVersion"]
 
 __all__ += ["AnalysisRequest", "AnalysisRun", "AnalysisDraft", "ClassificationHistory"]
 
+from app.db.models.automatic_response import AutomaticResponse
 from app.db.models.answer import Answer, Feedback
 
 __all__ += ["Answer", "Feedback"]

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from app.core.auto_response import AutoResponsePolicy, TenantID
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,6 +32,7 @@ class Settings(BaseSettings):
     github_app_private_key_base64: SecretStr | None = None
     github_webhook_secret: SecretStr | None = None
     github_redirect_uri: str | None = None
+    auto_response_policies: dict[TenantID, AutoResponsePolicy] = Field(default_factory=dict)
     aws_region: str | None = None
     s3_bucket_name: str | None = None
     s3_presigned_url_expire_seconds: int = Field(default=300, gt=0, le=3600)
