@@ -23,3 +23,5 @@ from app.db.models.answer import Answer, Feedback
 __all__ += ["Answer", "Feedback"]
 
 from app.db.models.group import InquiryGroup, GroupMembershipHistory, SurgeEpisode, Alert, AlertRead, IssueJob, InquirySummaryJob
+from app.db.models.github import GitHubAuthorization, GitHubIntegration, GitHubEvent, GitHubJob, GitHubSource
+__all__ += ["GitHubAuthorization", "GitHubIntegration", "GitHubEvent", "GitHubJob", "GitHubSource"]

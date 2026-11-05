@@ -699,6 +699,8 @@ LLM 추천을 반영해 저장한 그룹 목록. 급증 건수는 현재 서버 
 
 ## 8. GitHub API · 백엔드 담당
 
+8단계 구현 계약: [GitHub 연결·프론트·운영 명세](GitHubOperations.md). `/api/v1` 접두어를 사용한다. 인증 시작/완료·저장소 선택 API가 추가되며 H01의 `authorization_id`와 `Idempotency-Key`가 필수다(레벨 0은 인증 생략).
+
 ### H01 · POST /admin/integrations/github
 
 담당: **백엔드**
@@ -709,8 +711,9 @@ admin 전용. GitHub App 설치 소유권 검증. 허용 경로/제외 패턴 �
 
 ```json
 {
+  "authorization_id": "일회용 설치 인증 결과",
   "installation_id": 12345,
-  "repository": "syncnote-demo/syncnote-app",
+  "repository": "MOA-demo/syncnote-app",
   "watch_branch": "main",
   "security_level": 2,
   "include_paths": [
@@ -740,7 +743,7 @@ admin 전용. GitHub App 설치 소유권 검증. 허용 경로/제외 패턴 �
 
 담당: **백엔드**
 
-연동/동기화 상태 조회. 현재 GitHub 자료 분석은 외부 LLM을 사용할 수 있으며 로컬 모델 처리는 향후 배포 구상이다. 현재 구현을 로컬 처리로 표시하지 않는다.
+연동/동기화 상태 조회. `include_paths`, `exclude_patterns`, `document_bindings`, `error_code`, 마지막 완료 스냅샷의 `report`도 제공한다. 연결 정책·레벨 0/1/2 및 오류 처리는 GitHubOperations.md를 따른다. 현재 GitHub 자료 분석은 외부 LLM을 사용할 수 있으며 로컬 모델 처리는 향후 배포 구상이다. 현재 구현을 로컬 처리로 표시하지 않는다.
 
 요청 본문 없음.
 
@@ -749,7 +752,7 @@ admin 전용. GitHub App 설치 소유권 검증. 허용 경로/제외 패턴 �
 ```json
 {
   "integration_id": "github_syncnote",
-  "repository": "syncnote-demo/syncnote-app",
+  "repository": "MOA-demo/syncnote-app",
   "watch_branch": "main",
   "security_level": 2,
   "status": "연결 완료",
@@ -773,7 +776,8 @@ GitHub 원본 bytes의 X-Hub-Signature-256 검증, X-GitHub-Delivery로 중복 �
   "before": "a1b2c3d",
   "after": "b2c3d4e",
   "repository": {
-    "full_name": "syncnote-demo/syncnote-app"
+    "id": 67890,
+    "full_name": "MOA-demo/syncnote-app"
   },
   "installation": {
     "id": 12345

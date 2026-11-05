@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1 import admin_inquiries, attachments, auth, documents, inquiries, tenants
+from app.api.v1 import admin_inquiries, attachments, auth, documents, github, inquiries, tenants
 
 router = APIRouter()
 router.include_router(auth.router)
@@ -12,3 +12,4 @@ router.include_router(documents.router)
 
 from app.api.v1 import groups
 router.include_router(groups.router)
+router.include_router(github.router)
