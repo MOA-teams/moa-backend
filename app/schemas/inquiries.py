@@ -108,6 +108,21 @@ class InquiryChatResponse(BaseModel):
     has_more: bool = Field(description="현재 응답 뒤에 즉시 읽을 메시지가 더 있는지 여부")
 
 
+class CustomerInquirySummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    inquiry_id: str = Field(validation_alias=AliasChoices("public_id", "inquiry_id"))
+    title: str
+    status: InquiryStatus
+    created_at: datetime
+
+
+class CustomerInquiryListResponse(BaseModel):
+    items: list[CustomerInquirySummary]
+    next_cursor: str | None
+    has_more: bool
+
+
 class InquirySummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

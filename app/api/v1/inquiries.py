@@ -8,8 +8,8 @@ from app.core.enums import UserRole
 from app.deps.auth import get_user, require_roles
 from app.deps.db import get_db
 from app.schemas.auth import AuthenticatedUser
-from app.schemas.inquiries import InquiryChatResponse, InquiryCreateRequest, InquiryCreateResponse, MessageCreateRequest, MessageCreateResponse
-from app.services.inquiries import add_message, create_inquiry, get_customer_chat
+from app.schemas.inquiries import CustomerInquiryListResponse, InquiryChatResponse, InquiryCreateRequest, InquiryCreateResponse, MessageCreateRequest, MessageCreateResponse
+from app.services.inquiries import add_message, create_inquiry, get_customer_chat, list_customer_inquiries
 from app.schemas.inquiries import ReadRequest, ReadResponse, SessionEventRequest, SessionEventResponse
 from app.services.inquiry_activity import record_read, record_session_event
 
@@ -19,6 +19,19 @@ InquiryId = Annotated[str, Path(pattern=r"^Q-[0-9]{4}$", description="외부 문
 Cursor = Annotated[str | None, Query(max_length=2048, description="서버의 next_cursor를 그대로 전달. 최초 조회는 생략합니다.")]
 Limit = Annotated[int, Query(ge=1, le=100, description="페이지 크기. 기본 20, 최대 100")]
 COMMON_ERRORS = ("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "FORBIDDEN", "TENANT_REQUIRED")
+
+
+@router.get(
+    "", response_model=CustomerInquiryListResponse,
+    summary="본인의 문의 목록 조회",
+    responses=documented_errors(*COMMON_ERRORS, "INVALID_CURSOR", bearer_auth=True),
+)
+async def history(
+    user: Annotated[AuthenticatedUser, Depends(get_user)],
+    session: Annotated[AsyncSession, Depends(get_db)],
+    cursor: Cursor = None, limit: Limit = 20,
+) -> CustomerInquiryListResponse:
+    return await list_customer_inquiries(session, user=user, cursor=cursor, limit=limit)
 
 
 @router.post(
