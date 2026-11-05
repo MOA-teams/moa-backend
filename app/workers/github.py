@@ -164,12 +164,14 @@ async def main(once=False, retry=None):
             await retry_job(async_session_factory, retry)
             return
         while True:
+            from app.workers.push_events import run_once as history_once
+            history_worked = await history_once(async_session_factory, get_github_client())
             worked = await run_once(
                 async_session_factory, get_github_client(), get_rag_client()
             )
             if once:
                 return
-            if not worked:
+            if not worked and not history_worked:
                 await asyncio.sleep(2)
     finally:
         await engine.dispose()
