@@ -6,6 +6,30 @@
 
 API와 worker에 동일한 설정을 제공한다. Secret 값은 저장소·채팅·로그에 남기지 않는다.
 
+### GitHub Actions의 ENV_FILE
+
+[백엔드 저장소 Actions Secrets](https://github.com/MOA-teams/moa-backend/settings/secrets/actions)에서 **New repository secret**을 선택하고 이름은 `ENV_FILE`, 값은 **운영용 backend .env 파일의 내용 전체**를 붙여 넣는다. 줄바꿈을 그대로 유지한다. 파일 경로나 base64 문자열을 넣는 방식이 아니다.
+
+다음 키가 모두 필요하다. DB 접속 정보와 JWT 키는 현재 운영 값을 유지한다.
+
+```dotenv
+DATABASE_URL=postgresql+asyncpg://<계정>:<비밀번호>@<DB호스트>:5432/<DB이름>
+JWT_SECRET_KEY=<현재 운영 서명키>
+AWS_REGION=<기존 S3 버킷 리전>
+S3_BUCKET_NAME=<기존 비공개 버킷 이름>
+S3_PRESIGNED_URL_EXPIRE_SECONDS=300
+AI_BASE_URL=http://127.0.0.1:8001
+AI_SERVICE_TOKEN=<AI 서버의 MOA_INTERNAL_TOKEN과 동일한 값>
+```
+
+`SSH_HOST`, `SSH_USER`, `SSH_KEY` Secret은 그대로 필요하다. 새 workflow는 개별 S3 Secrets 대신 ENV_FILE에서 S3 설정도 읽는다. 기존 main의 workflow가 아직 개별 S3 Secrets를 사용한다면 새 workflow 배포가 완료되기 전에는 기존 Secrets를 제거하지 않는다.
+
+설정 값은 SSH 표준입력으로 전달하며 로그·명령 인자에 넣지 않는다. dotenv 문법·필수 키·DB/AI URL·JWT 길이·S3 값을 검증하고 새 설정으로 Alembic을 실행한다. 검증 또는 마이그레이션 실패 시 기존 환경파일은 보존하고 서비스를 재시작하지 않는다.
+
+마이그레이션 성공 후 `.env`와 systemd용 `.env.systemd`를 각각 원자적으로 교체하고 권한을 `0600`으로 제한한다. 후자는 기본값까지 포함하므로 과거 db.conf/S3 drop-in 값이 새 설정을 덮어쓰지 않는다. API와 worker의 전용 drop-in에 같은 EnvironmentFile을 연결한다. 파일 설치·서비스 재시작 단계 실패 시 배포가 실패로 종료되며, 이미 성공한 DB 마이그레이션을 자동으로 되돌리지는 않는다.
+
+dotenv는 shell로 실행하지 않는다. `${변수}`, `$()`, backtick, `%`는 값 그대로 취급하므로 다른 변수를 참조하는 형식 대신 완성된 값을 넣는다. Secret 업데이트만으로 배포가 실행되지는 않으며 **이 workflow가 포함된 main 배포 시** 반영된다.
+
 | 설정 | 용도 |
 |---|---|
 | `DATABASE_URL`, `JWT_SECRET_KEY` | 기존 backend 설정 |
@@ -38,7 +62,7 @@ After=network-online.target
 [Service]
 User=ubuntu
 WorkingDirectory=/home/ubuntu/moa-backend
-EnvironmentFile=/home/ubuntu/moa-backend/.env
+EnvironmentFile=/home/ubuntu/moa-backend/.env.systemd
 ExecStart=/home/ubuntu/moa-backend/.venv/bin/python -m app.workers.documents
 Restart=on-failure
 RestartSec=5
@@ -49,7 +73,7 @@ TimeoutStopSec=15
 WantedBy=multi-user.target
 ```
 
-현재 배포 스크립트는 API만 재시작한다. 운영 도입 때 worker 설치·환경설정·재시작을 배포 절차에 포함해야 한다. 위 `.env`는 소유자만 읽을 수 있는 서버 설정 파일을 전제로 한다.
+ENV_FILE 배포는 API와 이미 실행 중인 worker를 재시작한다. 미설치 worker의 unit 생성·활성화는 운영 도입 단계에서 별도로 수행한다. 위 `.env.systemd`는 배포 도구가 생성하는 파일이며 직접 편집하지 않는다.
 
 ## 접수와 검색 상태
 

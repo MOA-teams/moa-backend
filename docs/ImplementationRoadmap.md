@@ -13,6 +13,7 @@
 - 이전 버전 검색 차단 미확인 시 성공으로 반환하지 않는다. 원본·멱등 응답·event·revision을 보존해 응답 유실과 재시작을 복구한다.
 - 실행·재시도·운영 검증 기준은 [문서 운영 안내](DocumentOperations.md)를 따른다. 실제 AI/S3 연결과 운영 배포는 자동 대역 테스트와 별도로 확인한다.
 - 2026-11-05: 독립 PostgreSQL에서 전체 pytest **345개 통과**. 실제 Tesseract kor+eng로 한글 PNG/JPEG·스캔 PDF·혼합 PDF 검증도 통과했으며 skip은 없다. 마이그레이션 일치·왕복·기존 첨부 보존, 동시 ID/버전·멱등 요청·권한 격리·응답 유실·worker lease/재시도·CORS를 포함한다.
+- 후속 배포 설정: GitHub Secret `ENV_FILE` 하나로 DB·JWT·S3·AI 설정을 전달한다. 검증·마이그레이션 성공 후 비공개 환경파일을 적용하며 API와 실행 중인 worker를 재시작한다. Secret 등록 방법은 문서 운영 안내를 따른다.
 
 ## 확정한 단계
 
