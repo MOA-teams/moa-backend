@@ -4,6 +4,13 @@ from typing import Any
 from app.schemas.common import ErrorResponse
 
 API_DESCRIPTION = """
+## 담당자 답변·종료·평가
+- 담당자 상세의 revision·latest_customer_message_id·backend_knowledge_revision으로 POST /admin/inquiries/{id}/answers를 호출합니다. 초안 ID/revision은 함께 지정하거나 직접 작성 시 둘 다 null입니다.
+- 최종 답변은 채팅 메시지와 함께 저장된 뒤 201입니다. 고객은 기존 폴링으로 확인합니다. AI 검수 결과와 사람의 승인은 구분됩니다.
+- 답변 후 POST /admin/inquiries/{id}/close로 종료하면 고객 조회에 feedback_requested=true가 표시됩니다.
+- 고객은 POST /inquiries/{id}/feedback에 rating/resolved/comment 중 하나 이상을 최초 한 번 제출합니다. 별점과 해결 여부는 독립적입니다.
+- 세 변경 API 모두 Idempotency-Key 필수입니다. 409이면 최신 상세를 확인하고, 503 근거 확인 실패에는 원래 키·본문으로 재시도합니다.
+
 MOA 프론트엔드 연동을 위한 인증·기업 소속·문의·채팅·S3 첨부 API입니다.
 
 ## 처음 연결하는 순서
@@ -22,7 +29,7 @@ MOA 프론트엔드 연동을 위한 인증·기업 소속·문의·채팅·S3 �
 6. 첨부 다운로드 직전에 `GET /api/v1/attachments/{id}`로 기본 300초의 다운로드 URL을 발급받습니다.
 7. agent/admin은 `/api/v1/admin/inquiries`에서 본인 기업의 목록과 상세를 조회합니다.
 
-도메인 Enum은 계약의 한글 값이며 문의·메시지·첨부 ID는 접두어를 포함한 문자열입니다. 문의 저장과 함께 AI 분석 요청을 보존합니다. 결과는 담당자 상세에서 확인하며 답변 발송·상담 종료는 후속 단계입니다.
+도메인 Enum은 계약의 한글 값이며 문의·메시지·첨부 ID는 접두어를 포함한 문자열입니다. 문의 저장과 함께 AI 분석 요청을 보존합니다. 결과는 담당자 상세에서 확인하며 담당자 답변·상담 종료·고객 평가 API로 상담을 마무리합니다.
 
 ## 지식 문서 연동 순서
 1. 같은 기업의 agent/admin이 `/api/v1/admin/documents`를 사용합니다.
