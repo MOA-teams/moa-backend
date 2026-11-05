@@ -14,6 +14,7 @@ from app.core.enums import (
     UserRole,
 )
 from app.core.errors import APIError
+from app.core.customer_content import contains_internal_content
 from app.core.rag import RagError
 from app.db.models import (
     Answer,
@@ -198,6 +199,12 @@ async def persist_answer(
     automatic = automatic_approval is not None
     if automatic != (user is None):
         raise ValueError("발송 주체와 승인 기록이 일치해야 합니다.")
+    # 담당자 수정·직접 작성도 같은 발송 경계를 통과한다. 초안/내부 근거는 보존한다.
+    if contains_internal_content(payload.answer_text):
+        raise APIError(
+            400, "CUSTOMER_CONTENT_UNSAFE",
+            "고객 답변에서 코드 블록과 소스 파일 경로를 제거해 주세요.",
+        )
     duplicates = [Answer.inquiry_revision == inquiry.revision]
     if draft is not None:
         duplicates.append(

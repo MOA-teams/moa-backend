@@ -4,6 +4,7 @@ import re
 from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field
 from app.core.enums import InquiryCategory
+from app.core.customer_content import contains_internal_content
 
 TenantID = Annotated[str, Field(pattern=r"^[a-z]{1,64}$")]
 DocumentID = Annotated[str, Field(pattern=r"^DOC-[0-9]{3}$")]
@@ -68,7 +69,10 @@ INTERNAL_CONTENT = re.compile(
 
 def safe_answer(text: str) -> bool:
     return (
-        bool(text.strip()) and len(text) <= 10000 and not INTERNAL_CONTENT.search(text)
+        bool(text.strip())
+        and len(text) <= 10000
+        and not INTERNAL_CONTENT.search(text)
+        and not contains_internal_content(text)
     )
 
 
