@@ -51,8 +51,8 @@ async def create(
     summary="본인 문의에 고객 메시지 추가",
     description="""본인·같은 기업의 문의에만 추가합니다. 다른 고객 또는 기업의 문의는 404입니다.
 sender는 생략하거나 customer만 보낼 수 있습니다. agent·ai_auto 지정은 허용하지 않습니다.
-Idempotency-Key 필수. 성공 시 문의 revision을 증가시키고 상태를 received로 설정합니다.
-closed 상태는 409이므로 새 문의를 생성하세요. AI 요청은 후속 단계에서 연결합니다.""",
+Idempotency-Key 필수. 성공 시 문의 revision을 증가시키고 상태를 접수로 설정합니다.
+상담 종료 상태는 409이므로 새 문의를 생성하세요. AI 요청은 후속 단계에서 연결합니다.""",
     responses=documented_errors(*COMMON_ERRORS, "IDEMPOTENCY_CONFLICT", "INQUIRY_NOT_FOUND", "INQUIRY_CLOSED", "ATTACHMENT_NOT_FOUND", "ATTACHMENT_ALREADY_LINKED", bearer_auth=True),
 )
 async def append(

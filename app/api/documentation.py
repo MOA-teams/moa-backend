@@ -15,14 +15,14 @@ MOA 프론트엔드 연동을 위한 인증·기업 소속·문의·채팅·S3 �
 
 ## 문의·첨부 연동 순서
 1. customer 계정을 기업에 연결합니다.
-2. 첨부가 있으면 `POST /api/v1/attachments`에 multipart `file`로 업로드하고 숫자 `attachment_id`를 받습니다.
+2. 첨부가 있으면 `POST /api/v1/attachments`에 multipart `file`로 업로드하고 문자열 `attachment_id`를 받습니다.
 3. `POST /api/v1/inquiries`에 첫 메시지와 첨부 ID 배열을 보냅니다. **Idempotency-Key** 헤더에 요청별 UUID를 넣으세요.
 4. `GET /api/v1/inquiries/{id}`에서 받은 `next_cursor`로 다음 이력을 읽습니다. `has_more=false`이면 3초 뒤 폴링합니다.
 5. 추가 메시지에는 새 Idempotency-Key를 사용하고, 네트워크 재시도에는 원래 키와 본문을 유지합니다.
 6. 첨부 다운로드 직전에 `GET /api/v1/attachments/{id}`로 기본 300초의 다운로드 URL을 발급받습니다.
 7. agent/admin은 `/api/v1/admin/inquiries`에서 본인 기업의 목록과 상세를 조회합니다.
 
-Enum은 영어 snake_case이며 문의·메시지·첨부 ID는 숫자입니다. AI 요청·답변·상담 종료는 아직 연결하지 않았습니다.
+도메인 Enum은 계약의 한글 값이며 문의·메시지·첨부 ID는 접두어를 포함한 문자열입니다. AI 요청·답변·상담 종료는 아직 연결하지 않았습니다.
 
 ## 토큰 처리
 - 인증이 필요한 API는 `Authorization: Bearer <access_token>`을 사용합니다.
@@ -33,7 +33,7 @@ Enum은 영어 snake_case이며 문의·메시지·첨부 ID는 숫자입니다.
 - 로그인·갱신 응답에는 사용자 정보나 `expires_in`, `token_type` 필드가 없습니다. 사용자 정보는 내 정보 API로 조회합니다.
 
 ## 응답·오류 처리
-- JSON 필드는 `snake_case`입니다. 사용자 ID는 숫자, 기업 ID는 문자열입니다.
+- JSON 필드는 `snake_case`입니다. 사용자·기업 ID는 문자열입니다.
 - 입력 검증 실패는 **422가 아닌 400**으로 반환합니다.
 - `401`: 로그인 정보 또는 토큰 확인이 필요합니다. `403`: 역할·기업 소속 조건을 확인합니다.
 - `404`: 기업을 찾을 수 없습니다. `409`: 이메일·기업 ID 중복 또는 이미 정해진 소속과 충돌합니다.

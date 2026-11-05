@@ -62,7 +62,7 @@ class TokenResponse(BaseModel):
 
 
 class AuthenticatedUser(BaseModel):
-    internal_user_id: int = Field(validation_alias="user_id", exclude=True, repr=False)
+    internal_user_id: int = Field(exclude=True, repr=False)
     """현재 인증 사용자. 비밀번호·해시·토큰은 포함하지 않습니다."""
 
     model_config = ConfigDict(from_attributes=True)

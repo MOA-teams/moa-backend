@@ -27,5 +27,5 @@ class TenantResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    tenant_id: str = Field(description="기업 식별 문자열. 사용자 숫자 ID와 구분합니다.", examples=["syncnote"])
+    tenant_id: str = Field(description="기업 식별 문자열. 사용자 ID와 구분합니다.", examples=["syncnote"])
     name: str = Field(description="앞뒤 공백이 정리된 기업 표시 이름", examples=["싱크노트"])

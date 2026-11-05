@@ -21,7 +21,7 @@ router = APIRouter(prefix="/attachments", tags=["attachments"])
     summary="임시 첨부 업로드",
     description="""기업에 소속된 customer가 multipart/form-data의 **file** 필드로 파일 하나를 업로드합니다.
 PNG·JPEG·PDF, 파일당 10MiB 이하만 허용하며 확장자·MIME·시그니처를 검사합니다.
-성공 응답의 숫자 attachment_id를 문의 생성 또는 메시지 추가의 attachments 배열에 넣으세요.
+성공 응답의 문자열 attachment_id를 문의 생성 또는 메시지 추가의 attachments 배열에 넣으세요.
 파일 하나는 메시지 하나에만 연결할 수 있습니다. 임시 첨부는 업로더만 조회·연결할 수 있습니다.
 url은 기본 300초 동안 유효한 GET URL이며 만료 시 첨부 조회 API로 다시 발급받으세요.
 S3 key나 URL을 요청으로 지정하지 않습니다. 실제 AI 분석은 아직 실행하지 않습니다.""",

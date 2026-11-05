@@ -39,7 +39,7 @@ async def get_user(
     user = await session.scalar(select(User).where(User.public_id == claims.user_id))
     if user is None or user.role != claims.role:
         raise authentication_error()
-    return AuthenticatedUser.model_validate(user)
+    return AuthenticatedUser(user_id=user.public_id, internal_user_id=user.user_id, email=user.email, role=user.role, tenant_id=user.tenant_id)
 
 
 def require_roles(*roles: UserRole) -> Callable[..., Awaitable[AuthenticatedUser]]:
