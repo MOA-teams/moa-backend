@@ -30,6 +30,25 @@ AI_SERVICE_TOKEN=<AI 서버의 MOA_INTERNAL_TOKEN과 동일한 값>
 
 dotenv는 shell로 실행하지 않는다. `${변수}`, `$()`, backtick, `%`는 값 그대로 취급하므로 다른 변수를 참조하는 형식 대신 완성된 값을 넣는다. Secret 업데이트만으로 배포가 실행되지는 않으며 **이 workflow가 포함된 main 배포 시** 반영된다.
 
+### ENV_FILE 배포 실패 진단
+
+로컬 개발용 `.env`의 DB 계정·비밀번호나 JWT 키를 운영값으로 간주하지 않는다. 운영 서비스가 systemd 설정으로 실행 중이면 서버에 `.env` 파일이 없어도 DB 연결이 정상일 수 있다. 기존 운영 DB 접속 정보와 JWT 키를 유지하고, AI 토큰은 AI가 실제 사용하는 `MOA_INTERNAL_TOKEN`과 일치시킨다.
+
+실패 로그는 값 없이 아래 코드와 필요한 설정 이름만 출력한다. 오류 본문·SQL·접속 문자열은 출력하지 않는다.
+
+| 코드 | 확인 항목 |
+|---|---|
+| `ENV_FILE_REQUIRED_MISSING` | 함께 표시되는 필수 키 누락 |
+| `ENV_FILE_SYNTAX_INVALID` / `ENV_FILE_KEY_INVALID` | 표시된 줄의 문법·중복 키 |
+| `ENV_FILE_SETTINGS_INVALID` | 표시된 설정 이름의 형식·길이 |
+| `DB_AUTH_FAILED` | **운영 DB** 계정 존재 여부·비밀번호 |
+| `DB_CONNECTION_REFUSED` / `DB_CONNECTION_TIMEOUT` / `DB_HOST_UNRESOLVED` | DB 주소·포트·접근 경로 |
+| `DB_NOT_FOUND` / `DB_PERMISSION_DENIED` | DB 이름·마이그레이션 권한 |
+| `DB_REVISION_CONFLICT` / `DB_MIGRATION_FAILED` | Alembic revision·스키마 |
+| `ENV_FILE_WRITE_FAILED` / `SERVICE_ENV_INSTALL_FAILED` | 마이그레이션 이후 파일 쓰기·sudo 권한 |
+
+잘못된 Secret을 교체한 뒤 실패한 GitHub Actions 실행의 **Re-run failed jobs**로 재시도할 수 있다. 이 작업은 DB 마이그레이션과 서비스 재시작을 포함한다. Secret 원문은 채팅이나 Actions 로그에 붙여 넣지 않는다.
+
 | 설정 | 용도 |
 |---|---|
 | `DATABASE_URL`, `JWT_SECRET_KEY` | 기존 backend 설정 |
