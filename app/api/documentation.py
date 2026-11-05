@@ -34,6 +34,7 @@ MOA 프론트엔드 연동을 위한 인증·기업 소속 API입니다.
 OPENAPI_TAGS = [
     {"name": "auth", "description": "회원가입·로그인·토큰 갱신·내 정보 조회. 고객·담당자·관리자 모두 같은 인증 흐름을 사용합니다."},
     {"name": "tenants", "description": "기업 생성·본인 소속 연결·내 기업 조회. 사용자 한 명은 한 기업에만 소속됩니다."},
+    {"name": "attachments", "description": "기업·업로더 권한을 확인하는 비공개 S3 첨부. 업로드 후 숫자 ID를 문의에 연결하고, 다운로드 URL은 만료 시 재발급합니다."},
     {"name": "system", "description": "서버 응답 상태 확인. 헬스체크는 DB 연결 상태를 검사하지 않습니다."},
 ]
 
@@ -53,6 +54,11 @@ TOKEN_EXAMPLE = {"access_token": "eyJhbGciOiJIUzI1NiJ9.example.signature", "refr
 TENANT_EXAMPLE = {"tenant_id": "syncnote", "name": "싱크노트"}
 
 ERROR_DOCUMENTATION = {
+    "INVALID_FILE": (400, "파일 이름 또는 내용이 올바르지 않습니다.", "빈 파일·잘못된 파일명"),
+    "FILE_TOO_LARGE": (413, "파일은 10MiB 이하여야 합니다.", "파일 용량 초과"),
+    "UNSUPPORTED_FILE_TYPE": (415, "PNG, JPEG, PDF 파일만 업로드할 수 있습니다.", "확장자·MIME·파일 시그니처 불일치"),
+    "STORAGE_UNAVAILABLE": (503, "첨부 저장소를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.", "S3 설정·자격 증명·저장소 오류"),
+    "ATTACHMENT_NOT_FOUND": (404, "첨부를 찾을 수 없습니다.", "첨부 없음 또는 타인의 첨부"),
     "VALIDATION_ERROR": (400, "요청 값이 올바르지 않습니다.", "필수값 누락·형식·길이·역할·추가 필드 오류"),
     "EMAIL_ALREADY_EXISTS": (409, "이미 등록된 이메일입니다.", "대소문자를 포함해 동일한 이메일이 이미 존재함"),
     "INVALID_CREDENTIALS": (401, "이메일 또는 비밀번호가 올바르지 않습니다.", "미등록 이메일 또는 잘못된 비밀번호"),
