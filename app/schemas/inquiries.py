@@ -1,3 +1,5 @@
+from app.schemas.analysis import Analysis, SimilarInquiries, DraftView, Verification
+from app.core.enums import RunStatus
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -101,7 +103,7 @@ class InquirySummary(BaseModel):
     urgency: InquiryUrgency | None = Field(default=None, description="AI 분석 전 null")
     status: InquiryStatus
     created_at: datetime
-    processing_stage: None = Field(default=None, description="5단계 AI 결과 연동 전 null")
+    processing_stage: str | None = None
     group_id: None = Field(default=None, description="9단계 그룹 연동 전 null")
 
 
@@ -124,8 +126,15 @@ class InquiryDetailResponse(InquiryChatResponse):
     created_at: datetime
     updated_at: datetime
     latest_customer_message_id: str
-    processing_stage: None = None
-    latest_run_id: None = None
+    processing_stage: str | None = None
+    latest_run_id: str | None = None
+    analysis_request_id: str | None = None
+    run_status: RunStatus | None = None
+    analysis_error: str | None = None
+    analysis: Analysis | None = None
+    additional_question: str | None = None
+    similar_inquiries: SimilarInquiries | None = None
+    knowledge_revision: int | None = None
     group_id: None = None
-    draft: None = None
-    verification: None = None
+    draft: DraftView | None = None
+    verification: Verification | None = None

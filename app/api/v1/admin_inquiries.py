@@ -57,3 +57,22 @@ async def detail(
     cursor: Cursor = None, limit: Limit = 20,
 ) -> InquiryDetailResponse:
     return await get_inquiry_detail(session, user=user, inquiry_id=inquiry_id, cursor=cursor, limit=limit)
+
+
+from app.api.v1.inquiries import IdempotencyKey
+from app.schemas.analysis import AnalysisRetry, AnalysisAccepted, ClassificationRequest, ClassificationResponse
+from app.services.analysis import request_analysis, classify
+
+@router.post("/{inquiry_id}/analysis", status_code=202, response_model=AnalysisAccepted,
+             summary="최신 문의 재분석 요청",
+             description="같은 기업 담당자 전용. expected_inquiry_revision과 based_on_message_id를 확인하고 요청을 DB에 보존합니다. AI 접수 전 run_id는 null이며 상세 조회로 진행 상황을 확인합니다. review_only는 기본 true이고 이번 단계는 고객에게 자동 발송하지 않습니다. Idempotency-Key 필수입니다.")
+async def analyze(inquiry_id: InquiryId, payload: AnalysisRetry, key: IdempotencyKey,
+                  user: Annotated[AuthenticatedUser, Depends(get_user)],session: Annotated[AsyncSession, Depends(get_db)]):
+    return await request_analysis(session,user=user,inquiry_id=inquiry_id,payload=payload,key=key)
+
+@router.patch("/{inquiry_id}/classification",response_model=ClassificationResponse,
+              summary="담당자 분류·긴급도 확정",
+              description="현재 expected_revision과 수정 사유를 보냅니다. 변경 이력을 저장하고 revision을 증가시킵니다. 이후 AI 결과는 수동 확정 값을 덮어쓰지 않습니다. revision 충돌은 409입니다.")
+async def classification(inquiry_id: InquiryId,payload: ClassificationRequest,
+                         user: Annotated[AuthenticatedUser, Depends(get_user)],session: Annotated[AsyncSession, Depends(get_db)]):
+    return await classify(session,user=user,inquiry_id=inquiry_id,payload=payload)

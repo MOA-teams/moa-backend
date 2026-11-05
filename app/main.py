@@ -1,3 +1,9 @@
+import asyncio
+from contextlib import suppress
+from app.core.config import get_settings
+from app.workers.analysis import run_forever
+from app.db.session import async_session_factory
+from app.api.pipeline import router as pipeline_router
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -12,9 +18,14 @@ from app.db.session import engine
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    task=asyncio.create_task(run_forever(async_session_factory)) if get_settings().ai_pipeline_worker_enabled else None
     try:
         yield
     finally:
+        if task:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
         await engine.dispose()
 
 
@@ -36,8 +47,10 @@ app.add_middleware(
         "https://moa-admin-teal.vercel.app",
     ],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PATCH"],
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
     expose_headers=["X-Request-ID"],
 )
 app.include_router(api_router)
+
+app.include_router(pipeline_router)

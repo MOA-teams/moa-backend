@@ -9,6 +9,7 @@ from app.core.errors import APIError
 from app.db.models import Inquiry, Message, User
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.inquiries import InquiryDetailResponse, InquiryListResponse, InquirySummary
+from app.services.analysis import detail_analysis
 from app.services.attachments import require_tenant
 from app.services.inquiries import inquiry_not_found, message_page
 
@@ -60,10 +61,11 @@ async def get_inquiry_detail(
     return InquiryDetailResponse(
         **{field: getattr(inquiry, field) for field in (
             "status", "tenant_id", "source_customer_id", "title", "revision", "customer_category",
-            "env", "category", "urgency", "created_at", "updated_at",
+            "env", "category", "urgency", "created_at", "updated_at", "processing_stage",
         )},
         inquiry_id=inquiry.public_id,
         customer_id=await session.scalar(select(User.public_id).where(User.user_id == inquiry.customer_id)),
         messages=messages, next_cursor=next_cursor, has_more=has_more,
         latest_customer_message_id=latest_customer_message_id,
+        **await detail_analysis(session,inquiry),
     )
