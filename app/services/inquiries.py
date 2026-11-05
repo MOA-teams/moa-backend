@@ -171,7 +171,9 @@ async def get_customer_chat(session: AsyncSession, *, user: AuthenticatedUser, i
         raise inquiry_not_found()
     messages, next_cursor, has_more = await message_page(session, inquiry=inquiry, user=user, cursor=cursor, limit=limit)
     from app.services.answers import feedback_state
+    from app.services.response_progress import customer_response_progress
     return InquiryChatResponse(
+        response_progress=await customer_response_progress(session, inquiry),
         inquiry_id=inquiry_id, status=inquiry.status, messages=messages, next_cursor=next_cursor, has_more=has_more,
         agent_last_read_message_id=await read_message_id(session, inquiry, inquiry.agent_last_read_sequence),
         **await feedback_state(session, inquiry),

@@ -88,7 +88,13 @@ class MessageCreateResponse(BaseModel):
     status: InquiryStatus
 
 
+class ResponseProgress(BaseModel):
+    state: Literal["idle", "analyzing", "awaiting_customer", "waiting_agent", "answered", "closed"]
+    based_on_message_id: str | None = None
+
+
 class InquiryChatResponse(BaseModel):
+    response_progress: ResponseProgress | None = None
     closed_at: datetime | None = None
     resolution_status: ResolutionStatus = "미확인"
     feedback_requested: bool = False
