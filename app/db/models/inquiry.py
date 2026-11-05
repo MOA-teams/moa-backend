@@ -21,6 +21,7 @@ class Inquiry(BaseEntity):
     inquiry_id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.tenant_id", ondelete="RESTRICT"), nullable=False)
     customer_id: Mapped[int] = mapped_column(ForeignKey("users.user_id", ondelete="RESTRICT"), nullable=False)
+    source_customer_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     title: Mapped[str] = mapped_column(String(100), nullable=False)
     customer_category: Mapped[InquiryCategory] = mapped_column(category_type, nullable=False)
     env: Mapped[dict] = mapped_column(JSONB, nullable=False)

@@ -25,6 +25,9 @@ COMMON_ERRORS = ("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "FORBIDDEN", "TENAN
     description="""기업 소속 customer 전용. tenant_id·customer_id·created_at은 보내지 않습니다.
 문의·첫 고객 메시지·고정 접수 안내·첨부 연결을 함께 저장하며 AI를 기다리거나 호출하지 않습니다.
 customer_category는 영어 Enum이고 실제 AI 분류는 아직 null입니다.
+싱크노트 진입 query의 cid는 선택 필드 source_customer_id로 보냅니다(문자열, 최대 128자).
+source_customer_id는 참고 정보로만 저장하며 실제 고객·기업은 로그인한 사용자로 결정합니다.
+os·app_version·error_code는 env에 보내세요. 로그인·회원가입 전후 query 보존은 프론트에서 처리합니다.
 첨부는 먼저 /attachments로 업로드한 숫자 ID 배열을 보냅니다(최대 10개).
 Idempotency-Key는 필수이며 같은 키·본문의 재시도는 같은 201 응답입니다. 같은 키·다른 본문은 409입니다.
 문의 ID는 Q- 접두어가 없는 숫자 자동 증가 값입니다.""",
@@ -33,6 +36,7 @@ Idempotency-Key는 필수이며 같은 키·본문의 재시도는 같은 201 �
 async def create(
     payload: Annotated[InquiryCreateRequest, Body(openapi_examples={
         "plain": {"summary": "첨부 없는 문의", "value": {"message": "저장할 때 E-502가 떠요.", "customer_category": "bug", "env": {"os": "iOS 18", "app_version": "2.4.0", "error_code": "E-502"}, "attachments": []}},
+        "syncnote": {"summary": "로그인 후 싱크노트에서 전달된 고객·오류 정보로 접수", "value": {"message": "저장할 때 오류가 발생해요.", "source_customer_id": "U-2001", "customer_category": "bug", "env": {"os": "iOS 18", "app_version": "2.4.0", "error_code": "E-502"}, "attachments": []}},
         "attached": {"summary": "본인이 업로드한 첨부 ID로 교체", "value": {"message": "오류 화면입니다.", "customer_category": "bug", "attachments": [1]}},
     })],
     key: IdempotencyKey,
