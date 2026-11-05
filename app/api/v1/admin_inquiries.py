@@ -82,7 +82,7 @@ from app.services.analysis import request_analysis, classify
 @router.post("/{inquiry_id}/analysis", status_code=202, response_model=AnalysisAccepted,
              responses=documented_errors("VALIDATION_ERROR","INVALID_ACCESS_TOKEN","FORBIDDEN","TENANT_REQUIRED","INQUIRY_NOT_FOUND","STALE_INQUIRY_REVISION","INQUIRY_CLOSED","IDEMPOTENCY_CONFLICT",bearer_auth=True),
              summary="최신 문의 재분석 요청",
-             description="같은 기업 담당자 전용. expected_inquiry_revision과 based_on_message_id를 확인하고 요청을 DB에 보존합니다. AI 접수 전 run_id는 null이며 상세 조회로 진행 상황을 확인합니다. review_only는 기본 true이고 이번 단계는 고객에게 자동 발송하지 않습니다. Idempotency-Key 필수입니다.")
+             description="같은 기업 담당자 전용. expected_inquiry_revision과 based_on_message_id를 확인하고 요청을 DB에 보존합니다. AI 접수 전 run_id는 null이며 상세 조회로 진행 상황을 확인합니다. review_only=true가 기본이며 고객에게 자동 발송하지 않습니다. false인 경우에도 기업별 서버 정책과 최신성·근거·검수 검사를 통과해야 추가 질문 또는 최종 답변을 자동 발송합니다. 실제 발송 여부는 상세의 automatic_response.delivery_action으로 확인하세요. Idempotency-Key 필수입니다.")
 async def analyze(inquiry_id: InquiryId, payload: AnalysisRetry, key: IdempotencyKey,
                   user: Annotated[AuthenticatedUser, Depends(get_user)],session: Annotated[AsyncSession, Depends(get_db)]):
     return await request_analysis(session,user=user,inquiry_id=inquiry_id,payload=payload,key=key)
@@ -104,12 +104,12 @@ ANSWER_ERRORS = ("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "FORBIDDEN", "TENAN
     "INQUIRY_NOT_FOUND", "INQUIRY_CLOSED", "IDEMPOTENCY_CONFLICT", "STALE_INQUIRY_REVISION",
     "STALE_CUSTOMER_MESSAGE", "STALE_DRAFT", "STALE_KNOWLEDGE", "STALE_EVIDENCE",
     "EVIDENCE_NOT_RETRIEVED", "CODE_EVIDENCE_UNVERIFIED", "DOCUMENT_NOT_FOUND",
-    "EVIDENCE_CHECK_UNAVAILABLE", "ANSWER_ALREADY_SENT")
+    "EVIDENCE_CHECK_UNAVAILABLE", "ANSWER_ALREADY_SENT", "CUSTOMER_CONTENT_UNSAFE")
 
 
 @router.post("/{inquiry_id}/answers", status_code=201, response_model=AnswerResponse,
     summary="담당자 최종 답변 승인·발송", responses=documented_errors(*ANSWER_ERRORS, bearer_auth=True),
-    description="Idempotency-Key 필수. 상세 조회의 문의 revision·최신 고객 메시지·backend_knowledge_revision을 보냅니다. 초안 ID/revision은 함께 지정하거나 직접 작성 시 둘 다 null입니다. AI 검수 실패도 담당자 승인할 수 있지만 최신성 검사는 생략하지 않습니다. 답변과 채팅 메시지가 함께 저장된 뒤 201입니다.")
+    description="Idempotency-Key 필수. 상세 조회의 문의 revision·최신 고객 메시지·backend_knowledge_revision을 보냅니다. 초안 ID/revision은 함께 지정하거나 직접 작성 시 둘 다 null입니다. AI 검수 실패도 담당자 승인할 수 있지만 최신성 검사는 생략하지 않습니다. 코드 블록·소스 파일 경로가 포함된 본문은 400 CUSTOMER_CONTENT_UNSAFE로 거절합니다. 답변과 채팅 메시지가 함께 저장된 뒤 201입니다.")
 async def answer(inquiry_id: InquiryId, payload: AnswerRequest, key: IdempotencyKey,
     user: Annotated[AuthenticatedUser, Depends(get_user)], session: Annotated[AsyncSession, Depends(get_db)],
     rag=Depends(get_rag_client)) -> AnswerResponse:
