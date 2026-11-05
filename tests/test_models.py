@@ -60,7 +60,7 @@ async def test_migration_matches_models_and_supports_downgrade(db_engine, migrat
         differences = await connection.run_sync(lambda conn: compare_metadata(MigrationContext.configure(conn), Base.metadata))
         assert differences == []
         tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-        assert set(tables) == {"users", "refresh_tokens", "tenants", "inquiries", "messages", "attachments", "idempotency_records", "alembic_version"}
+        assert set(tables) == {"users", "refresh_tokens", "tenants", "inquiries", "messages", "attachments", "idempotency_records", "alembic_version", "documents", "document_versions", "document_counters", "document_jobs"}
         columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
         identity = next(column for column in columns if column["name"] == "user_id")
         assert identity["identity"]["start"] == 1
@@ -175,3 +175,22 @@ async def test_source_customer_migration_preserves_existing_inquiry_and_ownershi
     async with db_engine.begin() as connection:
         await connection.run_sync(migrate, "upgrade", "head")
         assert (await connection.execute(text("SELECT * FROM users"))).one() == user_before
+
+
+async def test_document_migration_preserves_existing_attachments(db_engine, migrate):
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "downgrade", "0005_add_source_customer_id")
+        await connection.execute(text("INSERT INTO tenants(tenant_id,name) VALUES ('alpha','Alpha')"))
+        await connection.execute(text("INSERT INTO users(email,password,role,tenant_id) VALUES ('document-migration@example.com','test-only','customer','alpha')"))
+        await connection.execute(text("INSERT INTO attachments(tenant_id,uploader_id,storage_key,file_name,mime,size) VALUES ('alpha',1,'test/key','old.pdf','application/pdf',10)"))
+        before = (await connection.execute(text("SELECT attachment_id,tenant_id,uploader_id,storage_key,created_at FROM attachments"))).one()
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "upgrade", "head")
+        assert await connection.scalar(text("SELECT purpose FROM attachments")) == "inquiry"
+        assert (await connection.execute(text("SELECT attachment_id,tenant_id,uploader_id,storage_key,created_at FROM attachments"))).one() == before
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "downgrade", "0005_add_source_customer_id")
+        assert (await connection.execute(text("SELECT attachment_id,tenant_id,uploader_id,storage_key,created_at FROM attachments"))).one() == before
+        assert not await connection.run_sync(lambda conn: inspect(conn).has_table("documents"))
+    async with db_engine.begin() as connection:
+        await connection.run_sync(migrate, "upgrade", "head")
