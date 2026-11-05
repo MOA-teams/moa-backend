@@ -21,3 +21,5 @@ from app.db.models.automatic_response import AutomaticResponse
 from app.db.models.answer import Answer, Feedback
 
 __all__ += ["Answer", "Feedback"]
+
+from app.db.models.group import InquiryGroup, GroupMembershipHistory, SurgeEpisode, Alert, AlertRead, IssueJob, InquirySummaryJob
