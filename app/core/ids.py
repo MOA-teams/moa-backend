@@ -11,6 +11,7 @@ ID_SPECS = {
     "inquiry": ("Q-", 4, 1001),
     "message": ("MSG-", 6, 1),
     "attachment": ("ATT-", 4, 1),
+    "answer": ("A-", 4, 1001),
     "draft": ("DRAFT-", 6, 1),
 }
 
