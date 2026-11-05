@@ -18,6 +18,12 @@ API_DESCRIPTION = """
 - 고객은 POST /inquiries/{id}/feedback에 rating/resolved/comment 중 하나 이상을 최초 한 번 제출합니다. 별점과 해결 여부는 독립적입니다.
 - 세 변경 API 모두 Idempotency-Key 필수입니다. 409이면 최신 상세를 확인하고, 503 근거 확인 실패에는 원래 키·본문으로 재시도합니다.
 
+## 자동 응대
+- 접수 안내는 문의와 함께 즉시 저장합니다. AI의 추가 질문·최종 답변은 기업별 서버 정책이 허용한 경우에만 자동 발송합니다.
+- `review_only=true` 재분석은 고객 발송을 하지 않습니다. false는 자동 발송을 보장하지 않으며 최신성·근거·검수·범위 검사를 모두 통과해야 합니다.
+- 담당자 상세의 `automatic_response.delivery_action`으로 실제 자동 발송과 담당자 검토를 구분하세요. 정책 미설정 또는 검사 실패 시 담당자 검토로 남깁니다.
+- 직접 작성·담당자 승인 답변에도 고객 본문의 코드 블록·소스 파일 경로 차단을 적용합니다. 차단 시 `400 CUSTOMER_CONTENT_UNSAFE`이며 메시지는 저장하지 않습니다.
+
 MOA 프론트엔드 연동을 위한 인증·기업 소속·문의·채팅·S3 첨부 API입니다.
 
 ## 처음 연결하는 순서
@@ -98,6 +104,7 @@ ERROR_DOCUMENTATION = {
     "CODE_EVIDENCE_UNVERIFIED": (409, "코드 근거 최신성을 확인할 수 없습니다.", "GitHub 연동 필요"),
     "EVIDENCE_CHECK_UNAVAILABLE": (503, "근거 최신성을 확인하지 못했습니다.", "AI 조회 실패, 발송 없음"),
     "ANSWER_ALREADY_SENT": (409, "이미 발송된 답변입니다.", "중복 발송 차단"),
+    "CUSTOMER_CONTENT_UNSAFE": (400, "고객 답변에서 코드 블록과 소스 파일 경로를 제거해 주세요.", "내부 코드 고객 노출 차단"),
     "ANSWER_REQUIRED": (409, "최종 답변이 필요합니다.", "답변 없는 상담 종료·평가 차단"),
     "INQUIRY_NOT_CLOSED": (409, "상담 종료 후 평가할 수 있습니다.", "진행 중 문의 평가"),
     "FEEDBACK_ALREADY_SUBMITTED": (409, "이미 평가했습니다.", "최초 평가 이후 재제출"),
