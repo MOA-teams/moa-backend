@@ -46,7 +46,7 @@ async def listing(
 source_customer_id는 싱크노트 등 외부에서 전달받은 참고용 식별 문자열이며, 실제 인증 고객은 customer_id입니다.
 기존 문의 또는 외부 ID 없이 접수한 문의의 source_customer_id는 null입니다. 이 필드는 담당자 상세에만 제공합니다.
 메시지는 고객 조회와 같은 cursor 규칙이며 최초 생략, 이후 next_cursor로 폴링합니다.
-아직 구현하지 않은 AI 실행·초안·그룹·검수 필드는 null입니다. 조회만으로 상태를 변경하지 않습니다.
+분석 요청·run 상태·최신 유효 초안·검수 결과를 제공합니다. 새 메시지나 수동 수정으로 오래된 초안은 현재 초안에 표시하지 않습니다. 그룹 확정은 후속 단계입니다. 조회만으로 상태를 변경하지 않습니다.
 첨부 다운로드는 각 attachment_id로 /attachments/{id}를 호출합니다.""",
     responses=documented_errors(*ERRORS, "INQUIRY_NOT_FOUND", bearer_auth=True),
 )
@@ -64,6 +64,7 @@ from app.schemas.analysis import AnalysisRetry, AnalysisAccepted, Classification
 from app.services.analysis import request_analysis, classify
 
 @router.post("/{inquiry_id}/analysis", status_code=202, response_model=AnalysisAccepted,
+             responses=documented_errors("VALIDATION_ERROR","INVALID_ACCESS_TOKEN","FORBIDDEN","TENANT_REQUIRED","INQUIRY_NOT_FOUND","STALE_INQUIRY_REVISION","INQUIRY_CLOSED","IDEMPOTENCY_CONFLICT",bearer_auth=True),
              summary="최신 문의 재분석 요청",
              description="같은 기업 담당자 전용. expected_inquiry_revision과 based_on_message_id를 확인하고 요청을 DB에 보존합니다. AI 접수 전 run_id는 null이며 상세 조회로 진행 상황을 확인합니다. review_only는 기본 true이고 이번 단계는 고객에게 자동 발송하지 않습니다. Idempotency-Key 필수입니다.")
 async def analyze(inquiry_id: InquiryId, payload: AnalysisRetry, key: IdempotencyKey,
@@ -71,6 +72,7 @@ async def analyze(inquiry_id: InquiryId, payload: AnalysisRetry, key: Idempotenc
     return await request_analysis(session,user=user,inquiry_id=inquiry_id,payload=payload,key=key)
 
 @router.patch("/{inquiry_id}/classification",response_model=ClassificationResponse,
+              responses=documented_errors("VALIDATION_ERROR","INVALID_ACCESS_TOKEN","FORBIDDEN","TENANT_REQUIRED","INQUIRY_NOT_FOUND","STALE_INQUIRY_REVISION",bearer_auth=True),
               summary="담당자 분류·긴급도 확정",
               description="현재 expected_revision과 수정 사유를 보냅니다. 변경 이력을 저장하고 revision을 증가시킵니다. 이후 AI 결과는 수동 확정 값을 덮어쓰지 않습니다. revision 충돌은 409입니다.")
 async def classification(inquiry_id: InquiryId,payload: ClassificationRequest,

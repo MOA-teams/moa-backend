@@ -22,7 +22,7 @@ MOA 프론트엔드 연동을 위한 인증·기업 소속·문의·채팅·S3 �
 6. 첨부 다운로드 직전에 `GET /api/v1/attachments/{id}`로 기본 300초의 다운로드 URL을 발급받습니다.
 7. agent/admin은 `/api/v1/admin/inquiries`에서 본인 기업의 목록과 상세를 조회합니다.
 
-도메인 Enum은 계약의 한글 값이며 문의·메시지·첨부 ID는 접두어를 포함한 문자열입니다. AI 요청·답변·상담 종료는 아직 연결하지 않았습니다.
+도메인 Enum은 계약의 한글 값이며 문의·메시지·첨부 ID는 접두어를 포함한 문자열입니다. 문의 저장과 함께 AI 분석 요청을 보존합니다. 결과는 담당자 상세에서 확인하며 답변 발송·상담 종료는 후속 단계입니다.
 
 ## 토큰 처리
 - 인증이 필요한 API는 `Authorization: Bearer <access_token>`을 사용합니다.
@@ -46,7 +46,7 @@ OPENAPI_TAGS = [
     {"name": "auth", "description": "회원가입·로그인·토큰 갱신·내 정보 조회. 고객·담당자·관리자 모두 같은 인증 흐름을 사용합니다."},
     {"name": "tenants", "description": "기업 생성·본인 소속 연결·내 기업 조회. 사용자 한 명은 한 기업에만 소속됩니다."},
     {"name": "admin-inquiries", "description": "같은 기업 agent/admin 전용 목록·상세 조회. 내부 필드는 고객 채팅 응답과 분리합니다."},
-    {"name": "inquiries", "description": "customer 전용 문의 접수·추가 메시지·cursor 폴링. 문의·메시지 저장에 Idempotency-Key가 필요합니다. AI 호출 없이 동작합니다."},
+    {"name": "inquiries", "description": "customer 전용 문의 접수·추가 메시지·cursor 폴링. 문의·메시지 저장에 Idempotency-Key가 필요합니다. AI 완료를 기다리지 않고 접수하며 분석 요청은 별도로 처리합니다."},
     {"name": "attachments", "description": "기업·업로더 권한을 확인하는 비공개 S3 첨부. 업로드 후 문자열 ID를 문의에 연결하고, 다운로드 URL은 만료 시 재발급합니다."},
     {"name": "system", "description": "서버 응답 상태 확인. 헬스체크는 DB 연결 상태를 검사하지 않습니다."},
 ]
@@ -88,6 +88,19 @@ ERROR_DOCUMENTATION = {
     "TENANT_NOT_FOUND": (404, "기업을 찾을 수 없습니다.", "요청한 기업 또는 연결된 기업을 찾을 수 없음"),
     "TENANT_REQUIRED": (403, "기업 소속이 필요합니다.", "기업 미소속 상태에서 내 기업 조회"),
 }
+
+
+ERROR_DOCUMENTATION.update({
+    "STALE_INQUIRY_REVISION": (409, "최신 문의를 다시 조회해 주세요.", "문의 revision 또는 기준 메시지 충돌"),
+    "ID_SPACE_EXHAUSTED": (503, "발급 가능한 ID 범위를 초과했습니다.", "계약 ID 범위 소진"),
+    "LEGACY_IDEMPOTENCY_KEY": (409, "이전 API 계약의 요청입니다. 처리 결과를 확인해 주세요.", "계약 전환 전 요청 키"),
+    "INVALID_SERVICE_TOKEN": (401, "유효한 서비스 인증이 필요합니다.", "AI 서비스 토큰 오류"),
+    "CALLBACK_NOT_CONFIGURED": (503, "서비스 인증 설정이 필요합니다.", "콜백 수신 토큰 미설정"),
+    "RUN_NOT_REGISTERED": (409, "실행 등록 후 재시도해 주세요.", "AI 접수 등록보다 콜백이 먼저 도착함"),
+    "PIPELINE_IDENTITY_MISMATCH": (409, "등록된 분석 요청과 일치하지 않습니다.", "문의·revision·기준 메시지 불일치"),
+    "PIPELINE_RESULT_CONFLICT": (409, "이미 저장된 최종 결과와 다릅니다.", "같은 run의 다른 최종 결과"),
+    "NON_TERMINAL_RESULT": (400, "완료 또는 실패 결과만 수신합니다.", "진행 중 결과를 콜백으로 전송함"),
+})
 
 
 def request_id_header() -> dict[str, Any]:

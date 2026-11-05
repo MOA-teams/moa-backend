@@ -23,7 +23,7 @@ COMMON_ERRORS = ("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "FORBIDDEN", "TENAN
     "", status_code=201, response_model=InquiryCreateResponse,
     summary="문의 접수와 첫 메시지·접수 안내 저장",
     description="""기업 소속 customer 전용. tenant_id·customer_id·created_at은 보내지 않습니다.
-문의·첫 고객 메시지·고정 접수 안내·첨부 연결을 함께 저장하며 AI를 기다리거나 호출하지 않습니다.
+문의·첫 고객 메시지·고정 접수 안내·첨부 연결을 함께 저장하며 분석 요청을 함께 보존하며 AI 완료를 기다리지 않습니다.
 customer_category는 한글 Enum이고 실제 AI 분류는 아직 null입니다.
 싱크노트 진입 query의 cid는 선택 필드 source_customer_id로 보냅니다(문자열, 최대 128자).
 source_customer_id는 참고 정보로만 저장하며 실제 고객·기업은 로그인한 사용자로 결정합니다.
@@ -52,7 +52,7 @@ async def create(
     description="""본인·같은 기업의 문의에만 추가합니다. 다른 고객 또는 기업의 문의는 404입니다.
 sender는 생략하거나 customer만 보낼 수 있습니다. agent·ai_auto 지정은 허용하지 않습니다.
 Idempotency-Key 필수. 성공 시 문의 revision을 증가시키고 상태를 접수로 설정합니다.
-상담 종료 상태는 409이므로 새 문의를 생성하세요. AI 요청은 후속 단계에서 연결합니다.""",
+상담 종료 상태는 409이므로 새 문의를 생성하세요. 새 revision으로 분석 요청을 보존합니다.""",
     responses=documented_errors(*COMMON_ERRORS, "IDEMPOTENCY_CONFLICT", "INQUIRY_NOT_FOUND", "INQUIRY_CLOSED", "ATTACHMENT_NOT_FOUND", "ATTACHMENT_ALREADY_LINKED", bearer_auth=True),
 )
 async def append(

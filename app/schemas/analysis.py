@@ -131,8 +131,13 @@ class PipelineResult(Contract):
     def terminal_shape(self) -> Self:
         if self.run_status == RunStatus.COMPLETED and (self.analysis is None or self.draft_result is None or self.error is not None):
             raise ValueError("완료 결과가 불완전합니다.")
-        if self.run_status == RunStatus.FAILED and self.error is None:
-            raise ValueError("실패 코드가 필요합니다.")
+        if self.run_status == RunStatus.FAILED:
+            if self.error is None or any(v is not None for v in (self.analysis, self.draft, self.draft_result, self.verification, self.additional_question)):
+                raise ValueError("실패 결과는 오류만 포함해야 합니다.")
+        if self.run_status == RunStatus.COMPLETED and self.draft_result == DraftResult.READY and (self.draft is None or self.verification is None):
+            raise ValueError("초안과 검수 결과가 필요합니다.")
+        if self.run_status == RunStatus.COMPLETED and self.draft_result == DraftResult.NEED_INFO and not self.additional_question:
+            raise ValueError("추가 질문이 필요합니다.")
         return self
 
 class ApplyResponse(Contract):

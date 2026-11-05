@@ -161,7 +161,7 @@ async def apply_result(session,result,*,tenant,lease_token=None):
                or request.phase in ('failed','superseded') or customer is None or customer.message_id!=request.based_on_message_id)
         draft=None
         if not stale:
-            if result.analysis and not inquiry.classification_manual:
+            if result.run_status == RunStatus.COMPLETED and result.analysis and not inquiry.classification_manual:
                 inquiry.category,inquiry.urgency=result.analysis.category,result.analysis.urgency
             if result.draft:
                 draft=AnalysisDraft(run_id=run.run_id,content=result.draft.model_dump(mode='json'),review_reasons=await evidence_review(session,inquiry,result))
@@ -174,6 +174,9 @@ async def apply_result(session,result,*,tenant,lease_token=None):
             # 외부 오류 원문은 결과 보존에만 사용하고 공개 상태에는 고정 코드를 제공한다.
             request.error_code='AI_PIPELINE_FAILED' if result.error else None
             request.phase='done'
+            request.lease_token=request.lease_until=None
+        if stale and lease_token is not None and request.run_id == run.run_id:
+            request.phase='superseded'
             request.lease_token=request.lease_until=None
         run.result,run.result_hash=raw,digest
         response=ApplyResponse(run_id=result.run_id,apply_status='ignored_stale' if stale else 'applied',

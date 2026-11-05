@@ -31,8 +31,9 @@ class AnalysisRequest(BaseEntity):
 
 class AnalysisRun(BaseEntity):
     __tablename__ = "analysis_runs"
+    __table_args__ = (Index("ix_analysis_runs_request_id", "request_id"),)
     run_id: Mapped[str] = mapped_column(String(100), primary_key=True)
-    request_id: Mapped[str] = mapped_column(ForeignKey("analysis_requests.request_id", ondelete="CASCADE"), nullable=False, index=True)
+    request_id: Mapped[str] = mapped_column(ForeignKey("analysis_requests.request_id", ondelete="CASCADE"), nullable=False)
     superseded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     result_hash: Mapped[str | None] = mapped_column(String(64))
     result: Mapped[dict | None] = mapped_column(JSONB)
@@ -49,8 +50,9 @@ class AnalysisDraft(BaseEntity):
 
 class ClassificationHistory(BaseEntity):
     __tablename__ = "classification_history"
+    __table_args__ = (Index("ix_classification_history_inquiry_id", "inquiry_id"),)
     history_id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    inquiry_id: Mapped[int] = mapped_column(ForeignKey("inquiries.inquiry_id", ondelete="CASCADE"), nullable=False, index=True)
+    inquiry_id: Mapped[int] = mapped_column(ForeignKey("inquiries.inquiry_id", ondelete="CASCADE"), nullable=False)
     actor_id: Mapped[int] = mapped_column(ForeignKey("users.user_id", ondelete="RESTRICT"), nullable=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
     before: Mapped[dict] = mapped_column(JSONB, nullable=False)
