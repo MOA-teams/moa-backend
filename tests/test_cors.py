@@ -10,7 +10,12 @@ async def cors_client(anyio_backend):
         yield client
 
 
-@pytest.mark.parametrize("origin", ["http://localhost:5173", "http://localhost:3000"])
+@pytest.mark.parametrize("origin", [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://moa-client.vercel.app",
+    "https://moa-admin-teal.vercel.app",
+])
 async def test_allowed_frontend_preflight(cors_client, origin):
     response = await cors_client.options("/api/v1/auth/login", headers={
         "Origin": origin,
