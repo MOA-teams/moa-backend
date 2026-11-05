@@ -216,3 +216,66 @@ async def test_large_conversation_preserved_but_not_submitted(client,customer,in
     async with session_factory() as s:
         row=await get_row(s,Inquiry,inquiry['inquiry_id']);job=await s.get(AnalysisRequest,row.latest_analysis_request_id)
         assert job.error_code=='ANALYSIS_INPUT_TOO_LARGE' and len(job.snapshot['messages'])==202
+
+async def test_same_revision_reanalysis_supersedes_old_run(client,agent,inquiry,session_factory,ai):
+    old=await submit(session_factory,ai)
+    detail=(await client.get(f'{ADMIN}/{inquiry["inquiry_id"]}',headers=agent['headers'])).json()
+    body={'expected_inquiry_revision':1,'based_on_message_id':detail['latest_customer_message_id']}
+    response=await client.post(f'{ADMIN}/{inquiry["inquiry_id"]}/analysis',headers={**agent['headers'],'Idempotency-Key':'new-run'},json=body)
+    assert response.status_code==202
+    assert (await client.post(CALLBACK,headers=callback_headers(old),json=ai.result(old))).json()['apply_status']=='ignored_stale'
+
+async def test_callback_and_poll_race_apply_once(client,inquiry,session_factory,ai):
+    run=await submit(session_factory,ai)
+    await due(session_factory)
+    results=await asyncio.gather(run_once(session_factory,ai.client),client.post(CALLBACK,headers=callback_headers(run),json=ai.result(run)))
+    assert results[1].status_code==200
+    async with session_factory() as s:
+        job=await s.scalar(select(AnalysisRequest));assert job.phase=='done'
+        assert await s.scalar(select(func.count()).select_from(AnalysisRun))==1
+        assert await s.scalar(select(func.count()).select_from(Message))==2
+
+async def test_snapshot_environment_and_source_id_are_separate(client,customer,session_factory,ai):
+    env={'os':'iOS 18','app_version':'2.4.0','error_code':'E-502'}
+    response=await client.post('/api/v1/inquiries',headers={**customer['headers'],'Idempotency-Key':'env'},
+        json={'message':'저장이 안 됩니다','customer_category':'기능 오류','source_customer_id':'U-9999','env':env})
+    assert response.status_code==201
+    run=await submit(session_factory,ai)
+    assert ai.runs[run]['env']==env and 'source_customer_id' not in ai.runs[run]
+
+async def test_explicit_malformed_terminal_result_rejected(client,inquiry,session_factory,ai):
+    run=await submit(session_factory,ai)
+    response=await client.post(CALLBACK,headers=callback_headers(run),json={**ai.result(run),'draft_result':'초안 가능','draft':None})
+    assert response.status_code==400
+    async with session_factory() as s: assert (await s.get(AnalysisRun,run)).result is None
+
+async def test_http_failure_and_contract_mismatch_do_not_leak_secrets(inquiry,session_factory,ai,caplog):
+    async def invalid(request):
+        return httpx.Response(202,json={'run_id':'RUN-invalid','inquiry_id':'Q-9999','inquiry_revision':1,'run_status':'대기'})
+    remote=PipelineClient('http://ai.test','test-secret',transport=httpx.MockTransport(invalid))
+    await run_once(session_factory,remote)
+    async with session_factory() as s:
+        job=await s.scalar(select(AnalysisRequest));assert job.error_code=='AI_INVALID_RESPONSE' and job.phase=='failed'
+    assert 'test-secret' not in caplog.text
+
+async def test_failed_message_rolls_back_new_analysis_request(client,customer,inquiry,session_factory):
+    async with session_factory() as s:
+        await s.execute(text("ALTER TABLE analysis_requests ADD CONSTRAINT test_block_snapshot CHECK (inquiry_revision < 2)"));await s.commit()
+    from app.services.inquiries import add_message
+    from app.schemas.inquiries import MessageCreateRequest
+    from app.schemas.auth import AuthenticatedUser
+    from sqlalchemy.exc import IntegrityError
+    user=AuthenticatedUser(user_id=customer['user_id'],internal_user_id=customer['internal_id'],email='customer@example.com',role='customer',tenant_id='alpha')
+    async with session_factory() as s:
+        with pytest.raises(IntegrityError):
+            await add_message(s,user=user,inquiry_id=inquiry['inquiry_id'],payload=MessageCreateRequest(text='new'),key='rollback')
+        row=await get_row(s,Inquiry,inquiry['inquiry_id'])
+        assert row.revision==1 and row.last_message_sequence==2
+        assert await s.scalar(select(func.count()).select_from(AnalysisRequest))==1
+
+async def test_new_api_swagger_errors_and_patch_cors(client):
+    spec=(await client.get('/openapi.json')).json()
+    for path,method in [(ADMIN+'/{inquiry_id}/analysis','post'),(ADMIN+'/{inquiry_id}/classification','patch'),(CALLBACK,'post')]:
+        assert {'400','401','403','409'}<=set(spec['paths'][path][method]['responses'])
+    response=await client.options(ADMIN+'/Q-1001/classification',headers={'Origin':'https://moa-admin-teal.vercel.app','Access-Control-Request-Method':'PATCH','Access-Control-Request-Headers':'authorization,content-type'})
+    assert response.status_code==200

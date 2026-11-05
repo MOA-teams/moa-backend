@@ -23,7 +23,8 @@ async def test_staff_list_and_detail_include_only_own_tenant(client, customer, i
         assert body["tenant_id"] == "alpha" and body["customer_id"] == customer["user_id"]
         assert body["revision"] == 1 and body["customer_category"] == "기능 오류"
         assert body["latest_customer_message_id"] == body["messages"][0]["message_id"]
-        for field in ("category", "urgency", "processing_stage", "latest_run_id", "group_id", "draft", "verification"):
+        assert body["processing_stage"] == "대기"
+        for field in ("category", "urgency", "latest_run_id", "group_id", "draft", "verification"):
             assert body[field] is None
     assert (await client.get(f"{BASE}/{inquiry['inquiry_id']}", headers=foreign_agent["headers"])).status_code == 404
     assert [item["inquiry_id"] for item in (await client.get(BASE, headers=foreign_agent["headers"])).json()["items"]] == [foreign.json()["inquiry_id"]]
@@ -94,7 +95,7 @@ async def test_swagger_and_idempotency_cors(client):
     })
     assert response.status_code == 200
     spec = (await client.get("/openapi.json")).json()
-    assert len(spec["paths"]) == 15
+    assert len(spec["paths"]) == 18
     assert spec["components"]["schemas"]["InquiryStatus"]["enum"] == ["접수", "담당자 확인 중", "추가 정보 필요", "답변 완료", "상담 종료"]
     operation = spec["paths"]["/api/v1/inquiries"]["post"]
     assert any(p["name"] == "Idempotency-Key" and p["required"] for p in operation["parameters"])

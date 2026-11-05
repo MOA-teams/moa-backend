@@ -61,7 +61,7 @@ async def test_migration_matches_models_and_supports_downgrade(db_engine, migrat
         differences = await connection.run_sync(lambda conn: compare_metadata(MigrationContext.configure(conn), Base.metadata))
         assert differences == []
         tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
-        assert set(tables) == {"users", "refresh_tokens", "tenants", "inquiries", "messages", "attachments", "idempotency_records", "alembic_version"}
+        assert set(tables) == {"users", "refresh_tokens", "tenants", "inquiries", "messages", "attachments", "idempotency_records", "analysis_requests", "analysis_runs", "analysis_drafts", "classification_history", "alembic_version"}
         columns = await connection.run_sync(lambda conn: inspect(conn).get_columns("users"))
         identity = next(column for column in columns if column["name"] == "user_id")
         assert identity["identity"]["start"] == 1
