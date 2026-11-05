@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     jwt_secret_key: SecretStr
     access_token_expire_seconds: int = Field(default=3600, gt=0)
     refresh_token_expire_days: int = Field(default=7, gt=0)
+    aws_region: str | None = None
+    s3_bucket_name: str | None = None
+    s3_presigned_url_expire_seconds: int = Field(default=300, gt=0, le=3600)
 
     @field_validator("jwt_secret_key")
     @classmethod

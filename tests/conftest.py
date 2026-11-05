@@ -120,3 +120,100 @@ async def tokens(client, account):
     response = await client.post("/api/v1/auth/login", json={"email": account["email"], "password": account["password"]})
     assert response.status_code == 200
     return response.json()
+
+
+@pytest.fixture
+async def make_actor(session_factory):
+    """실제 DB 사용자와 서명 토큰으로 권한을 검증한다. 인증 의존성은 대체하지 않는다."""
+    from app.core.enums import UserRole
+    from app.core.security import create_access_token
+    from app.db.models import Tenant, User
+
+    async def create(name, role="customer", tenant_id="alpha"):
+        async with session_factory() as session:
+            if tenant_id is not None and await session.get(Tenant, tenant_id) is None:
+                session.add(Tenant(tenant_id=tenant_id, name=tenant_id))
+                await session.flush()
+            user = User(email=f"{name}@example.com", password="test-only-not-used-for-login", role=UserRole(role), tenant_id=tenant_id)
+            session.add(user)
+            await session.commit()
+            return {
+                "user_id": user.user_id, "role": role, "tenant_id": tenant_id,
+                "headers": {"Authorization": f"Bearer {create_access_token(user.user_id, user.role)}"},
+            }
+    return create
+
+
+@pytest.fixture
+async def customer(make_actor):
+    return await make_actor("customer")
+
+
+@pytest.fixture
+async def agent(make_actor):
+    return await make_actor("agent", "agent")
+
+
+@pytest.fixture
+async def other_customer(make_actor):
+    return await make_actor("other")
+
+
+@pytest.fixture
+async def foreign_customer(make_actor):
+    return await make_actor("foreign", tenant_id="beta")
+
+
+@pytest.fixture
+async def foreign_agent(make_actor):
+    return await make_actor("foreignagent", "agent", "beta")
+
+
+@pytest.fixture
+async def inquiry(client, customer):
+    response = await client.post("/api/v1/inquiries", headers={**customer["headers"], "Idempotency-Key": "initial"},
+                                 json={"message": "첫 문의", "customer_category": "bug"})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+@pytest.fixture
+async def fake_storage():
+    from app.core.storage import get_s3_storage, storage_error
+
+    class FakeStorage:
+        expires_in = 300
+
+        def __init__(self):
+            self.objects = {}
+            self.calls = []
+            self.fail_put = False
+            self.fail_delete = False
+            self.fail_sign = False
+
+        def put(self, key, file, mime, size):
+            self.calls.append(("put", key))
+            self.objects[key] = file.read()
+            assert len(self.objects[key]) == size
+            if self.fail_put:
+                raise storage_error()
+
+        def delete(self, key):
+            self.calls.append(("delete", key))
+            if self.fail_delete:
+                raise storage_error()
+            self.objects.pop(key, None)
+
+        def download_url(self, key):
+            self.calls.append(("sign", key))
+            if self.fail_sign:
+                raise storage_error()
+            return f"https://example.test/{key}?X-Amz-Signature=test-only"
+
+    storage = FakeStorage()
+    app.dependency_overrides[get_s3_storage] = lambda: storage
+    try:
+        yield storage
+    finally:
+        app.dependency_overrides.pop(get_s3_storage, None)
+        get_s3_storage.cache_clear()

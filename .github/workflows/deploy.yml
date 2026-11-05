@@ -30,11 +30,15 @@ jobs:
     runs-on: ubuntu-latest
     concurrency: deploy-production
     steps:
+      - uses: actions/checkout@v4
       - name: Deploy over SSH
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_KEY: ${{ secrets.SSH_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+          S3_PRESIGNED_URL_EXPIRE_SECONDS: ${{ secrets.S3_PRESIGNED_URL_EXPIRE_SECONDS }}
         run: |
           # 붙여넣기 과정에서 섞인 공백/줄바꿈/따옴표 제거
           SSH_HOST=$(printf '%s' "$SSH_HOST" | tr -d '[:space:]"'"'")
@@ -43,9 +47,14 @@ jobs:
             echo "SSH_HOST / SSH_USER / SSH_KEY secret 중 비어 있는 값이 있습니다." >&2
             exit 1
           fi
+          if [ -z "$AWS_REGION" ] || [ -z "$S3_BUCKET_NAME" ]; then
+            echo "AWS_REGION / S3_BUCKET_NAME secret을 설정해야 합니다." >&2
+            exit 1
+          fi
           install -m 700 -d ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
-          ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
-            'cd ~/moa-backend && git fetch --quiet origin main && git reset --hard origin/main && bash scripts/deploy.sh'
+          python3 scripts/configure_s3.py --export | \
+            ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
+              'cd ~/moa-backend && git fetch --quiet origin main </dev/null && git reset --hard origin/main && bash scripts/deploy.sh --configure-s3'
