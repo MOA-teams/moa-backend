@@ -44,6 +44,10 @@ def parse_environment(content: str) -> dict[str, str]:
 def runtime_environment(raw: dict[str, str]) -> dict[str, str]:
     # 모든 Settings 필드를 명시해 배포 프로세스의 과거 환경변수가 검증에 섞이지 않게 한다.
     values = {name: raw.get(name.upper(), field.get_default(call_default_factory=True)) for name, field in Settings.model_fields.items()}
+    # 배포 계약은 AI 주소·서비스 토큰을 필수로 받는다. 플래그 누락만으로 분석이
+    # 영원히 대기하지 않게 활성화하되 운영자가 명시한 false는 그대로 존중한다.
+    if "AI_PIPELINE_WORKER_ENABLED" not in raw:
+        values["ai_pipeline_worker_enabled"] = True
     # Settings의 생성자 인자는 환경 소스와 달리 복합 JSON 문자열을 자동 해석하지 않는다.
     if isinstance(values["auto_response_policies"], str):
         values["auto_response_policies"] = json.loads(values["auto_response_policies"])

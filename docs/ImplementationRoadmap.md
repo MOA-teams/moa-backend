@@ -3,6 +3,13 @@
 2026-11-05 합의 기준. 단계 순서를 유지하며 각 단계의 외부 의존성 확인을 별도로 기록한다.
 현재 계약은 5·6단계의 문자열 ID·한글 enum이며 APISpec·Swagger를 따른다. 3·4단계의 숫자 ID·영문 enum 설명은 당시 구현 기록이다.
 
+## 10단계 선행 작업: 실제 LLM 연결
+
+- `fix/llm-connection`에서 배포 시 분석 worker 플래그 누락으로 AI 작업이 실행되지 않는 문제를 수정한다. 명시적 비활성화와 로컬 기본값은 유지한다.
+- 실제 Bedrock 생성·임베딩 호출 및 가상 문의 `Q-1016`의 분석 결과 저장을 확인했다. 콜백 토큰 없이 I02 폴링으로 완료했다.
+- 격리 PostgreSQL 전체 pytest **583개 통과**. 설정·점검·복구 절차는 [LLM 운영 안내](LLMOperations.md)를 따른다.
+- main 병합 후 실제 시드 문서·RAG 초안·GitHub 연결·데모 반복/복구 검증을 이어간다. 9단계 그룹·급증·Issue는 별도 담당자 작업이며 아직 전체 10단계 완료로 표시하지 않는다.
+
 ## 8단계 구현 기준
 
 - `origin/main`의 `961f189`에서 `feat/github-integration`으로 분기한다. H01~H03, GitHub App 사용자 인증·선택 API, 별도 PostgreSQL lease worker를 구현한다.
