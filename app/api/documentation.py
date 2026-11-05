@@ -43,6 +43,7 @@ Enum은 영어 snake_case이며 문의·메시지·첨부 ID는 숫자입니다.
 """
 
 OPENAPI_TAGS = [
+    {"name": "documents", "description": "같은 기업 agent/admin의 문서 원본·불변 버전 관리와 RAG 인덱싱 상태 조회."},
     {"name": "auth", "description": "회원가입·로그인·토큰 갱신·내 정보 조회. 고객·담당자·관리자 모두 같은 인증 흐름을 사용합니다."},
     {"name": "tenants", "description": "기업 생성·본인 소속 연결·내 기업 조회. 사용자 한 명은 한 기업에만 소속됩니다."},
     {"name": "admin-inquiries", "description": "같은 기업 agent/admin 전용 목록·상세 조회. 내부 필드는 고객 채팅 응답과 분리합니다."},
@@ -67,6 +68,11 @@ TOKEN_EXAMPLE = {"access_token": "eyJhbGciOiJIUzI1NiJ9.example.signature", "refr
 TENANT_EXAMPLE = {"tenant_id": "syncnote", "name": "싱크노트"}
 
 ERROR_DOCUMENTATION = {
+    "DOCUMENT_NOT_FOUND": (404, "문서 또는 버전을 찾을 수 없습니다.", "문서 없음 또는 다른 기업의 문서"),
+    "DOCUMENT_ID_EXHAUSTED": (409, "이 기업의 AI 문서 ID 999개를 모두 사용했습니다.", "AI 문서 ID 한도 소진"),
+    "DOCUMENT_VERSION_CONFLICT": (409, "문서 버전이 현재 상태와 충돌합니다.", "중복·건너뛴 버전 또는 이전 버전 활성화"),
+    "DOCUMENT_SYNC_PENDING": (409, "이전 상태 변경을 먼저 동기화해야 합니다.", "미확정 검색 차단이 남아 있음"),
+    "DOCUMENT_SYNC_FAILED": (503, "검색 상태 반영을 확인하지 못했습니다. 같은 요청으로 재시도하세요.", "원본·작업은 보존되었으나 AI 반영 확인 실패"),
     "IDEMPOTENCY_CONFLICT": (409, "같은 Idempotency-Key로 다른 요청을 보낼 수 없습니다.", "중복 키의 요청 본문 불일치"),
     "ATTACHMENT_ALREADY_LINKED": (409, "이미 메시지에 연결된 첨부입니다.", "이미 사용 중인 첨부"),
     "INQUIRY_NOT_FOUND": (404, "문의를 찾을 수 없습니다.", "문의 없음 또는 다른 기업·고객의 문의"),
