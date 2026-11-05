@@ -24,6 +24,7 @@ def deployment(tmp_path):
     env.update({
         "PATH": f"{commands}:{env['PATH']}", "MOA_APP_DIR": str(app_dir),
         "MOA_SERVICE_ENV_FILE": str(dropin), "DEPLOY_TEST_EVENTS": str(events),
+        "DEPLOY_TEST_S3_OUTPUT": str(tmp_path / "installed-s3.conf"),
     })
 
     def executable(path, content):
@@ -66,6 +67,15 @@ except Exception:
     print("test migration: configuration unavailable", file=sys.stderr)
     sys.exit(2)
 ''')
+    executable(venv_bin / "python", f'''#!{sys.executable}
+import os
+import runpy
+import sys
+with open(os.environ["DEPLOY_TEST_EVENTS"], "a") as events:
+    events.write("configure-s3\\n")
+sys.argv = sys.argv[1:]
+runpy.run_path({str(PROJECT_ROOT / "scripts" / "configure_s3.py")!r}, run_name="__main__")
+''')
     executable(commands / "sudo", '''#!/bin/bash
 set -eu
 if [ "$1" = "sed" ]; then
@@ -75,6 +85,23 @@ if [ "$1" = "sed" ]; then
   fi
   shift
   exec sed "$@"
+fi
+if [ "$1" = "install" ]; then
+  if [ "$2" = "-d" ]; then
+    echo s3-directory >> "$DEPLOY_TEST_EVENTS"
+    exit 0
+  fi
+  echo s3-install >> "$DEPLOY_TEST_EVENTS"
+  if [ "${DEPLOY_TEST_INSTALL_FAILURE:-0}" = "1" ]; then
+    exit 1
+  fi
+  [ "$2" = "-m" ] && [ "$3" = "0600" ]
+  cp "$4" "$DEPLOY_TEST_S3_OUTPUT"
+  exit 0
+fi
+if [ "$1" = "systemctl" ] && [ "$2" = "daemon-reload" ]; then
+  echo daemon-reload >> "$DEPLOY_TEST_EVENTS"
+  exit 0
 fi
 if [ "$1" = "systemctl" ] && [ "$2" = "restart" ]; then
   echo restart >> "$DEPLOY_TEST_EVENTS"
@@ -109,14 +136,17 @@ exit "${DEPLOY_TEST_HEALTH_EXIT:-0}"
             else:
                 raise ValueError(source)
 
-        def run(self, **overrides):
-            result = subprocess.run(["bash", str(PROJECT_ROOT / "scripts" / "deploy.sh")],
-                                    env={**env, **overrides}, capture_output=True, text=True)
+        def run(self, *, payload=None, args=(), **overrides):
+            result = subprocess.run(["bash", str(PROJECT_ROOT / "scripts" / "deploy.sh"), *args],
+                                    env={**env, **overrides}, input=payload, capture_output=True, text=True)
             log = events.read_text().splitlines() if events.exists() else []
             # 테스트도 설정 값을 출력하지 않으며 stdout/stderr 누출을 검증한다.
             assert self.database_url not in result.stdout + result.stderr
             assert self.key not in result.stdout + result.stderr
             return result, log
+
+        def s3_config(self):
+            return (tmp_path / "installed-s3.conf").read_text()
 
     return Deployment()
 
@@ -179,3 +209,40 @@ def test_redeploy_still_runs_alembic_upgrade_head(deployment):
     assert first.returncode == second.returncode == 0
     assert events.count("migration upgrade head") == 2
     assert events.count("restart") == 2
+
+
+
+def test_s3_config_is_installed_and_reloaded_before_restart(deployment):
+    import json
+
+    deployment.configure("dropin")
+    payload = {"AWS_REGION": "ap-northeast-1", "S3_BUCKET_NAME": "moa-private-test-bucket"}
+    result, events = deployment.run(payload=json.dumps(payload), args=("--configure-s3",))
+    assert result.returncode == 0, result.stderr
+    assert events.index("migration upgrade head") < events.index("configure-s3") < events.index("s3-install") < events.index("daemon-reload") < events.index("restart")
+    content = deployment.s3_config()
+    assert 'Environment="AWS_REGION=ap-northeast-1"' in content
+    assert 'Environment="S3_BUCKET_NAME=moa-private-test-bucket"' in content
+    assert 'Environment="S3_PRESIGNED_URL_EXPIRE_SECONDS=300"' in content
+    assert "DATABASE_URL" not in content and "JWT_SECRET_KEY" not in content
+    assert "moa-private-test-bucket" not in result.stdout + result.stderr
+
+
+def test_s3_install_failure_stops_restart(deployment):
+    import json
+
+    deployment.configure("dotenv")
+    result, events = deployment.run(payload=json.dumps({"AWS_REGION": "ap-northeast-1", "S3_BUCKET_NAME": "moa-test-bucket"}),
+                                    args=("--configure-s3",), DEPLOY_TEST_INSTALL_FAILURE="1")
+    assert result.returncode != 0
+    assert "s3-install" in events
+    assert "daemon-reload" not in events and "restart" not in events
+
+
+@pytest.mark.parametrize("payload", ["", "invalid-json", '{"AWS_REGION":"ap-northeast-1"}'])
+def test_invalid_s3_payload_stops_restart(deployment, payload):
+    deployment.configure("environment")
+    result, events = deployment.run(payload=payload, args=("--configure-s3",))
+    assert result.returncode != 0
+    assert "configure-s3" in events
+    assert "s3-install" not in events and "restart" not in events
