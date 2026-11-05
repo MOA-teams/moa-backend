@@ -22,6 +22,10 @@ AI의 `MOA_ALLOWED_TENANTS`에도 대상 기업을 허용해야 한다. 현재 �
 
 콜백이 없어도 worker의 I02 폴링으로 결과를 반영한다. 현재 운영 검증은 이 경로로 수행했다. worker는 API lifespan에서 실행되며 별도 systemd 분석 worker는 필요하지 않다. 문서 인덱싱·GitHub 동기화 worker는 별도 프로세스다.
 
+AI가 I02에 선택적 `routing={team,reason,requires_human}`을 반환하면 백엔드는 해당 구조를 검증하고 `verification.reasons`의 `담당 팀: {team}. {reason}`으로 정규화한다. AI의 기존 callback도 같은 형식을 사용한다. 이 처리로 새 AI 응답의 `routing` 때문에 `AI_INVALID_RESPONSE`가 발생하거나, 동일 결과의 callback·폴링 지문이 달라지는 일을 방지한다. `routing` 누락·null은 기존 저장 형식과 지문을 유지한다. 관리자 응답에 구조화된 담당 팀 필드를 추가하는 변경은 포함하지 않는다.
+
+`관련 공개 사실 근거를 찾지 못했습니다`는 AI 검색 결과에 사실 근거가 없다는 뜻이다. 결과 수신 오류와 구분해서 확인한다. 백엔드·AI의 knowledge revision 숫자를 일치시키거나 폐기 문서를 임의로 복원하지 않는다. 현재 유효하고 검색 가능한 문서를 확인한 뒤 `review_only=true` 재분석으로 새 초안 생성을 검증한다. 이미 완료된 과거 분석 결과는 코드 배포만으로 다시 생성되지 않는다.
+
 ## 읽기 전용 점검
 
 서버에서는 실제 서비스가 읽는 환경파일을 지정한다.
