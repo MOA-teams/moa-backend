@@ -50,7 +50,7 @@ async def get_inquiry_detail(
     session: AsyncSession, *, user: AuthenticatedUser, inquiry_id: str, cursor: str | None, limit: int,
 ) -> InquiryDetailResponse:
     tenant_id = require_tenant(user)
-    inquiry = await session.scalar(select(Inquiry).where(Inquiry.public_id == inquiry_id, Inquiry.tenant_id == tenant_id))
+    inquiry = await session.scalar(select(Inquiry).where(Inquiry.public_id == inquiry_id, Inquiry.tenant_id == tenant_id).with_for_update(read=True))
     if inquiry is None:
         raise inquiry_not_found()
     messages, next_cursor, has_more = await message_page(session, inquiry=inquiry, user=user, cursor=cursor, limit=limit)
