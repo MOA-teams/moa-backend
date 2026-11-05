@@ -134,3 +134,91 @@ async def test_id_exhaustion_is_503_and_no_partial_inquiry(
     async with session_factory() as s:
         assert await s.scalar(text("SELECT count(*) FROM inquiries")) == 0
         assert await s.scalar(text("SELECT count(*) FROM idempotency_records")) == 0
+
+
+async def test_existing_document_id_versions_and_jobs_survive(db_engine, migrate):
+    async with db_engine.begin() as c:
+        await c.run_sync(migrate, "downgrade", "0007_document_attachments")
+        await c.execute(
+            text("INSERT INTO tenants(tenant_id,name) VALUES ('alpha','Alpha')")
+        )
+        await c.execute(
+            text(
+                "INSERT INTO users(email,password,role,tenant_id) VALUES ('doc@example.com','hash','agent','alpha')"
+            )
+        )
+        await c.execute(
+            text(
+                "INSERT INTO document_counters(tenant_id,last_number) VALUES ('alpha',17)"
+            )
+        )
+        await c.execute(
+            text(
+                "INSERT INTO documents(tenant_id,ai_source_id,latest_version) VALUES ('alpha','DOC-017',1)"
+            )
+        )
+        await c.execute(
+            text(
+                "INSERT INTO document_versions(doc_id,version,uploader_id,original_text,title,doc_type,authored_at,status,indexing_status) VALUES (1,1,1,'원본','정책','policy',now(),'valid','pending')"
+            )
+        )
+        await c.execute(
+            text(
+                "INSERT INTO document_jobs(version_id,source_revision,phase) VALUES (1,1,'extract')"
+            )
+        )
+        before = (
+            await c.execute(
+                text(
+                    "SELECT doc_id,version,uploader_id,original_text,created_at,updated_at FROM document_versions"
+                )
+            )
+        ).one()
+        jobs = (await c.execute(text("SELECT * FROM document_jobs"))).all()
+    async with db_engine.begin() as c:
+        await c.run_sync(migrate, "upgrade", "head")
+        assert await c.scalar(text("SELECT ai_source_id FROM documents")) == "DOC-017"
+        assert (
+            await c.execute(
+                text(
+                    "SELECT doc_type::text,status::text,indexing_status::text FROM document_versions"
+                )
+            )
+        ).one() == ("정책", "유효", "대기")
+        assert (
+            await c.execute(
+                text(
+                    "SELECT doc_id,version,uploader_id,original_text,created_at,updated_at FROM document_versions"
+                )
+            )
+        ).one() == before
+        assert (await c.execute(text("SELECT * FROM document_jobs"))).all() == jobs
+    async with db_engine.begin() as c:
+        await c.run_sync(migrate, "downgrade", "0007_document_attachments")
+        assert (
+            await c.execute(
+                text(
+                    "SELECT doc_type::text,status::text,indexing_status::text FROM document_versions"
+                )
+            )
+        ).one() == ("policy", "valid", "pending")
+        assert (await c.execute(text("SELECT * FROM document_jobs"))).all() == jobs
+
+
+async def test_migration_preflight_rejects_insufficient_id_capacity(db_engine, migrate):
+    async with db_engine.begin() as c:
+        await c.run_sync(migrate, "downgrade", "0007_document_attachments")
+        await c.execute(
+            text(
+                "INSERT INTO users(email,password,role) SELECT 'agent'||i||'@example.com','hash','agent' FROM generate_series(1,100) AS i"
+            )
+        )
+    with pytest.raises(RuntimeError, match="ID_SPACE_EXHAUSTED"):
+        async with db_engine.begin() as c:
+            await c.run_sync(migrate, "upgrade", "head")
+    async with db_engine.begin() as c:
+        assert await c.scalar(text("SELECT count(*) FROM users")) == 100
+        assert (
+            await c.scalar(text("SELECT version_num FROM alembic_version"))
+            == "0007_document_attachments"
+        )

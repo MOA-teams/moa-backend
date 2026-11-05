@@ -13,7 +13,7 @@ from app.workers.documents import claim_job, process_claim, run_once
 
 pytestmark = pytest.mark.anyio
 BASE = "/api/v1/admin/documents"
-PAYLOAD = {"version": 1, "title": "환불 정책", "doc_type": "policy", "status": "valid", "created_at": "2026-11-01T12:00:00+09:00", "text": "환불 신청은 결제일로부터 7일 이내 가능합니다."}
+PAYLOAD = {"version": 1, "title": "환불 정책", "doc_type": "정책", "status": "유효", "created_at": "2026-11-01T12:00:00+09:00", "text": "환불 신청은 결제일로부터 7일 이내 가능합니다."}
 
 
 class FakeRag:
@@ -100,10 +100,10 @@ async def drain(factory, rag):
 async def test_registration_preserves_original_and_search_state(client, agent, session_factory, rag):
     result = await create(client, agent)
     assert result.status_code == 202, result.text
-    assert isinstance(result.json()["doc_id"], int)
+    assert result.json()["doc_id"] == "DOC-001"
     await drain(session_factory, rag)
     item = (await client.get(BASE, headers=agent["headers"])).json()["items"][0]
-    assert item["searchable"] and item["indexing_status"] == "completed"
+    assert item["searchable"] and item["indexing_status"] == "완료"
     assert item["created_at"] != item["uploaded_at"]
     async with session_factory() as session:
         version = await session.scalar(select(DocumentVersion))
@@ -133,8 +133,8 @@ async def test_concurrent_ai_ids_and_tenant_limit(client, agent, session_factory
         await session.execute(update(DocumentCounter).values(last_number=998))
         await session.commit()
     results = await asyncio.gather(*(create(client, agent, key=f"last-{i}") for i in range(2)))
-    assert sorted(r.status_code for r in results) == [202, 409]
-    assert next(r for r in results if r.status_code == 409).json()["error"]["code"] == "DOCUMENT_ID_EXHAUSTED"
+    assert sorted(r.status_code for r in results) == [202, 503]
+    assert next(r for r in results if r.status_code == 503).json()["error"]["code"] == "ID_SPACE_EXHAUSTED"
 
 
 async def test_version_blocks_old_before_success_and_no_fallback(client, agent, session_factory, rag):
@@ -147,9 +147,9 @@ async def test_version_blocks_old_before_success_and_no_fallback(client, agent, 
     await drain(session_factory, rag)
     items = (await client.get(BASE, headers=agent["headers"])).json()["items"]
     assert len(items) == 1 and items[0]["version"] == 2 and items[0]["searchable"]
-    retired = await client.get(BASE, headers=agent["headers"], params={"status": "retired"})
+    retired = await client.get(BASE, headers=agent["headers"], params={"status": "폐기"})
     assert retired.json()["items"] == []
-    old = await client.patch(f"{BASE}/{first['doc_id']}/versions/1/status", headers=agent["headers"], json={"status": "valid", "review_required": False, "reason": "복구"})
+    old = await client.patch(f"{BASE}/{first['doc_id']}/versions/1/status", headers=agent["headers"], json={"status": "유효", "review_required": False, "reason": "복구"})
     assert old.status_code == 409
 
 
@@ -164,7 +164,7 @@ async def test_barrier_failure_keeps_intent_and_reuses_event(client, agent, sess
         assert await session.scalar(select(func.count()).select_from(DocumentVersion)) == 2
     # 같은 상태의 K03도 미확정 차단을 우회해 성공하면 안 된다.
     rag.fail_status = True
-    old = await client.patch(f"{BASE}/{doc_id}/versions/1/status", headers=agent["headers"], json={"status": "retired", "review_required": False, "reason": "재시도"})
+    old = await client.patch(f"{BASE}/{doc_id}/versions/1/status", headers=agent["headers"], json={"status": "폐기", "review_required": False, "reason": "재시도"})
     assert old.status_code == 503
     rag.fail_status = False
     response = await create(client, agent, key="v2", doc_id=doc_id, version=2)
@@ -190,10 +190,10 @@ async def test_status_review_and_reactivation_force_new_revision(client, agent, 
     doc_id = (await create(client, agent)).json()["doc_id"]
     await drain(session_factory, rag)
     path = f"{BASE}/{doc_id}/versions/1/status"
-    response = await client.patch(path, headers=agent["headers"], json={"status": "valid", "review_required": True, "reason": "검토"})
+    response = await client.patch(path, headers=agent["headers"], json={"status": "유효", "review_required": True, "reason": "검토"})
     assert response.status_code == 200 and not response.json()["searchable"]
     assert not (await rag.view("alpha", "DOC-001", 1)).searchable
-    response = await client.patch(path, headers=agent["headers"], json={"status": "valid", "review_required": False, "reason": "검토 완료"})
+    response = await client.patch(path, headers=agent["headers"], json={"status": "유효", "review_required": False, "reason": "검토 완료"})
     assert response.status_code == 200 and not response.json()["searchable"]
     await drain(session_factory, rag)
     assert (await rag.view("alpha", "DOC-001", 1)).source_revision == 4
@@ -205,10 +205,10 @@ async def test_list_sync_failure_and_embedding_mismatch_never_claim_searchable(c
     await drain(session_factory, rag)
     rag.fail_view = True
     item = (await client.get(BASE, headers=agent["headers"])).json()["items"][0]
-    assert item["indexing_status"] == "completed" and not item["searchable"] and item["sync_error"]
+    assert item["indexing_status"] == "완료" and not item["searchable"] and item["sync_error"]
     rag.fail_view, rag.searchable = False, False
     item = (await client.get(BASE, headers=agent["headers"])).json()["items"][0]
-    assert item["indexing_status"] == "completed" and not item["searchable"]
+    assert item["indexing_status"] == "완료" and not item["searchable"]
     await step(session_factory, rag)
     rag.searchable = True
     await drain(session_factory, rag)
@@ -226,14 +226,14 @@ async def test_roles_tenant_and_cursor_isolation(client, agent, customer, foreig
     page = (await client.get(BASE, headers=agent["headers"], params={"limit": 1})).json()
     assert page["has_more"] and page["next_cursor"]
     assert (await client.get(BASE, headers=foreign_agent["headers"], params={"cursor": page["next_cursor"]})).status_code == 400
-    assert (await client.get(BASE, headers=agent["headers"], params={"cursor": page["next_cursor"], "status": "valid"})).status_code == 400
+    assert (await client.get(BASE, headers=agent["headers"], params={"cursor": page["next_cursor"], "status": "유효"})).status_code == 400
     assert (await client.get(BASE, headers=agent["headers"], params={"cursor": page["next_cursor"]})).json()["items"][0]["doc_id"] == doc_id
 
 
 @pytest.mark.parametrize("changes", [
     {"created_at": "2026-11-01T12:00:00"}, {"version": 2}, {"version": True},
     {"text": None}, {"attachment_id": 1}, {"title": " "}, {"text": "\n "},
-    {"doc_type": "정책"}, {"tenant_id": "beta"}, {"status": "review_required"},
+    {"doc_type": "policy"}, {"tenant_id": "beta"}, {"status": "review_required"},
 ])
 async def test_document_validation(client, agent, rag, changes):
     assert (await create(client, agent, **changes)).status_code == 400
@@ -288,7 +288,7 @@ async def test_text_limit_fails_without_silent_truncation(client, agent, session
     await create(client, agent, text="가" * 54551)
     await drain(session_factory, rag)
     item = (await client.get(BASE, headers=agent["headers"])).json()["items"][0]
-    assert item["indexing_status"] == "failed" and item["indexing_error"] == "DOCUMENT_CHUNK_LIMIT"
+    assert item["indexing_status"] == "실패" and item["indexing_error"] == "DOCUMENT_CHUNK_LIMIT"
     assert not rag.calls
 
 
