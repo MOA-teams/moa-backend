@@ -152,6 +152,14 @@ class PipelineError(Contract):
     retryable: bool = False
 
 
+class TeamRouting(Contract):
+    team: Literal["CS", "테크", "판단 보류"] = "판단 보류"
+    reason: str = Field(
+        default="담당 팀을 판단할 근거가 부족합니다.", min_length=1, max_length=500
+    )
+    requires_human: bool = Field(default=True, strict=True)
+
+
 class PipelineResult(Contract):
     run_id: RunID
     tenant_id: str = Field(pattern=r"^[a-z]{1,64}$")
@@ -168,6 +176,17 @@ class PipelineResult(Contract):
     draft: Draft | None = None
     verification: Verification | None = None
     error: PipelineError | None = None
+    # AI의 기존 callback과 같은 표현으로 정규화한다. 선택 필드 추가만으로
+    # 이전 결과의 지문이 달라지거나 poll/callback이 서로 충돌하지 않게 한다.
+    routing: TeamRouting | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def routing_review_note(self) -> Self:
+        if self.routing is not None and self.verification is not None:
+            note = f"담당 팀: {self.routing.team}. {self.routing.reason}"
+            if note not in self.verification.reasons:
+                self.verification.reasons.append(note)
+        return self
 
     @model_validator(mode="after")
     def terminal_shape(self) -> Self:
