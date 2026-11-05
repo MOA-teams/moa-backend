@@ -1,3 +1,4 @@
+from conftest import get_row
 import pytest
 from sqlalchemy import select, text
 
@@ -20,7 +21,7 @@ async def test_staff_list_and_detail_include_only_own_tenant(client, customer, i
         assert detail.status_code == 200
         body = detail.json()
         assert body["tenant_id"] == "alpha" and body["customer_id"] == customer["user_id"]
-        assert body["revision"] == 1 and body["customer_category"] == "bug"
+        assert body["revision"] == 1 and body["customer_category"] == "기능 오류"
         assert body["latest_customer_message_id"] == body["messages"][0]["message_id"]
         for field in ("category", "urgency", "processing_stage", "latest_run_id", "group_id", "draft", "verification"):
             assert body[field] is None
@@ -43,14 +44,14 @@ async def test_list_keyset_pagination_equal_times_and_filters(client, customer, 
         ids.append(response.json()["inquiry_id"])
     async with session_factory() as session:
         await session.execute(text("UPDATE inquiries SET created_at='2026-11-05T12:00:00+09:00'"))
-        first = await session.get(Inquiry, ids[0])
+        first = await get_row(session, Inquiry, ids[0])
         first.category = InquiryCategory.BUG
         first.urgency = InquiryUrgency.HIGH
         await session.commit()
     seen = []
     cursor = None
     while True:
-        query = {"limit": 2, "status": "received"}
+        query = {"limit": 2, "status": "접수"}
         if cursor:
             query["cursor"] = cursor
         response = await client.get(BASE, headers=agent["headers"], params=query)
@@ -62,26 +63,26 @@ async def test_list_keyset_pagination_equal_times_and_filters(client, customer, 
             break
         cursor = page["next_cursor"]
     assert seen == list(reversed(ids))
-    filtered = (await client.get(BASE, headers=agent["headers"], params={"category": "bug", "urgency": "high"})).json()
+    filtered = (await client.get(BASE, headers=agent["headers"], params={"category": "기능 오류", "urgency": "높음"})).json()
     assert [item["inquiry_id"] for item in filtered["items"]] == ids[:1]
-    assert (await client.get(BASE, headers=agent["headers"], params={"status": "closed"})).json()["items"] == []
-    assert (await client.get(BASE, headers=agent["headers"], params={"cursor": cursor, "status": "closed"})).status_code == 400
+    assert (await client.get(BASE, headers=agent["headers"], params={"status": "상담 종료"})).json()["items"] == []
+    assert (await client.get(BASE, headers=agent["headers"], params={"cursor": cursor, "status": "상담 종료"})).status_code == 400
 
 
 async def test_admin_detail_pagination_and_read_does_not_change_timestamps(client, agent, inquiry, session_factory):
     inquiry_id = inquiry["inquiry_id"]
     async with session_factory() as session:
-        row = await session.get(Inquiry, inquiry_id)
+        row = await get_row(session, Inquiry, inquiry_id)
         before = row.updated_at
     first = (await client.get(f"{BASE}/{inquiry_id}", headers=agent["headers"], params={"limit": 1})).json()
     assert first["has_more"] and len(first["messages"]) == 1
     second = (await client.get(f"{BASE}/{inquiry_id}", headers=agent["headers"], params={"cursor": first["next_cursor"]})).json()
     assert not second["has_more"] and len(second["messages"]) == 1
     async with session_factory() as session:
-        assert (await session.get(Inquiry, inquiry_id)).updated_at == before
+        assert (await get_row(session, Inquiry, inquiry_id)).updated_at == before
 
 
-@pytest.mark.parametrize("query", [{"status": "접수"}, {"category": "기능 오류"}, {"urgency": "높음"}, {"limit": 101}, {"cursor": "invalid"}])
+@pytest.mark.parametrize("query", [{"status": "received"}, {"category": "bug"}, {"urgency": "high"}, {"limit": 101}, {"cursor": "invalid"}])
 async def test_staff_query_validation(client, agent, query):
     assert (await client.get(BASE, headers=agent["headers"], params=query)).status_code == 400
 
@@ -94,7 +95,7 @@ async def test_swagger_and_idempotency_cors(client):
     assert response.status_code == 200
     spec = (await client.get("/openapi.json")).json()
     assert len(spec["paths"]) == 15
-    assert spec["components"]["schemas"]["InquiryStatus"]["enum"] == ["received", "in_review", "needs_info", "answered", "closed"]
+    assert spec["components"]["schemas"]["InquiryStatus"]["enum"] == ["접수", "담당자 확인 중", "추가 정보 필요", "답변 완료", "상담 종료"]
     operation = spec["paths"]["/api/v1/inquiries"]["post"]
     assert any(p["name"] == "Idempotency-Key" and p["required"] for p in operation["parameters"])
     assert {"400", "401", "403", "404", "409"} <= set(operation["responses"])

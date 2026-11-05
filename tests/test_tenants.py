@@ -1,3 +1,4 @@
+from conftest import get_row
 import asyncio
 
 import jwt
@@ -54,9 +55,9 @@ async def test_admin_creation_links_creator_atomically(client, session_factory):
     assert response.json() == {"tenant_id": "syncnote", "name": "싱크노트"}
     assert (await client.get("/api/v1/auth/me", headers=headers)).json()["tenant_id"] == "syncnote"
     async with session_factory() as session:
-        user = await session.get(User, account["user_id"])
+        user = await get_row(session, User, account["user_id"])
         assert user.tenant_id == "syncnote"
-        tenant = await session.get(Tenant, "syncnote")
+        tenant = await get_row(session, Tenant, "syncnote")
         assert tenant.created_at.utcoffset() is not None
 
 
@@ -67,7 +68,7 @@ async def test_non_admin_creation_is_forbidden(client, session_factory, role):
     assert response.status_code == 403
     async with session_factory() as session:
         assert await session.scalar(select(func.count()).select_from(Tenant)) == 0
-        assert (await session.get(User, account["user_id"])).tenant_id is None
+        assert (await get_row(session, User, account["user_id"])).tenant_id is None
 
 
 @pytest.mark.parametrize("role", ["customer", "agent", "admin"])
@@ -88,11 +89,11 @@ async def test_idempotent_join_does_not_update_user_again(client, session_factor
     account, headers = await actor(client, "member")
     assert (await client.post(f"{TENANTS}/join", headers=headers, json={"tenant_id": "alpha"})).status_code == 200
     async with session_factory() as session:
-        user = await session.get(User, account["user_id"])
+        user = await get_row(session, User, account["user_id"])
         before = (user.created_at, user.updated_at)
     assert (await client.post(f"{TENANTS}/join", headers=headers, json={"tenant_id": "alpha"})).status_code == 200
     async with session_factory() as session:
-        user = await session.get(User, account["user_id"])
+        user = await get_row(session, User, account["user_id"])
         assert (user.created_at, user.updated_at) == before
 
 
@@ -110,8 +111,8 @@ async def test_duplicate_id_does_not_link_second_admin(client, session_factory):
     response = await client.post(TENANTS, headers=headers, json={"tenant_id": "alpha", "name": "다른 이름"})
     assert response.status_code == 409 and response.json()["error"]["code"] == "TENANT_ALREADY_EXISTS"
     async with session_factory() as session:
-        assert (await session.get(User, account["user_id"])).tenant_id is None
-        assert (await session.get(Tenant, "alpha")).name == "alpha 회사"
+        assert (await get_row(session, User, account["user_id"])).tenant_id is None
+        assert (await get_row(session, Tenant, "alpha")).name == "alpha 회사"
 
 
 async def test_assigned_admin_cannot_create_another_company(client, session_factory):
@@ -119,8 +120,8 @@ async def test_assigned_admin_cannot_create_another_company(client, session_fact
     response = await client.post(TENANTS, headers=headers, json={"tenant_id": "beta", "name": "Beta"})
     assert response.status_code == 409
     async with session_factory() as session:
-        assert await session.get(Tenant, "beta") is None
-        assert (await session.get(User, account["user_id"])).tenant_id == "alpha"
+        assert await get_row(session, Tenant, "beta") is None
+        assert (await get_row(session, User, account["user_id"])).tenant_id == "alpha"
 
 
 async def test_cross_tenant_reassignment_is_blocked_and_reads_are_scoped(client):
@@ -170,7 +171,7 @@ async def test_concurrent_creation_has_one_company_and_no_orphan(client, session
     winner = next(response.json()["tenant_id"] for response in responses if response.status_code == 201)
     async with session_factory() as session:
         assert await session.scalar(select(func.count()).select_from(Tenant)) == 1
-        assert (await session.get(User, account["user_id"])).tenant_id == winner
+        assert (await get_row(session, User, account["user_id"])).tenant_id == winner
 
 
 async def test_concurrent_duplicate_id_links_only_one_admin(client, session_factory):
@@ -197,7 +198,7 @@ async def test_concurrent_join_does_not_overwrite_membership(client, session_fac
     assert sorted(response.status_code for response in responses) == [200, 409]
     winner = next(response.json()["tenant_id"] for response in responses if response.status_code == 200)
     async with session_factory() as session:
-        assert (await session.get(User, account["user_id"])).tenant_id == winner
+        assert (await get_row(session, User, account["user_id"])).tenant_id == winner
 
 
 async def test_lock_refreshes_preloaded_identity_map(client, session_factory):
@@ -205,11 +206,11 @@ async def test_lock_refreshes_preloaded_identity_map(client, session_factory):
     await company(client, "beta")
     account, _ = await actor(client, "preloaded")
     async with session_factory() as first, session_factory() as second:
-        cached = [await first.get(User, account["user_id"]), await second.get(User, account["user_id"])]
+        cached = [await get_row(first, User, account["user_id"]), await get_row(second, User, account["user_id"])]
         assert all(user.tenant_id is None for user in cached)
         results = await asyncio.gather(
-            join_tenant(first, user_id=account["user_id"], tenant_id="alpha"),
-            join_tenant(second, user_id=account["user_id"], tenant_id="beta"),
+            join_tenant(first, user_id=cached[0].user_id, tenant_id="alpha"),
+            join_tenant(second, user_id=cached[1].user_id, tenant_id="beta"),
             return_exceptions=True,
         )
         assert sum(isinstance(result, Tenant) for result in results) == 1
@@ -226,7 +227,7 @@ async def test_creation_and_join_share_one_membership_lock(client, session_facto
     assert sum(response.status_code < 300 for response in responses) == 1
     assert sum(response.status_code == 409 for response in responses) == 1
     async with session_factory() as session:
-        user = await session.get(User, account["user_id"])
+        user = await get_row(session, User, account["user_id"])
         assert user.tenant_id == ("alpha" if responses[0].status_code == 201 else "beta")
         assert await session.scalar(select(func.count()).select_from(Tenant)) == (2 if user.tenant_id == "alpha" else 1)
 
@@ -238,10 +239,10 @@ async def test_failed_membership_write_rolls_back_company_creation(client, sessi
         await session.commit()
     async with session_factory() as session:
         with pytest.raises(IntegrityError):
-            await create_tenant(session, user_id=account["user_id"], tenant_id="alpha", name="Alpha")
+            await create_tenant(session, user_id=(await get_row(session, User, account["user_id"])).user_id, tenant_id="alpha", name="Alpha")
         assert not session.in_transaction()
-        assert await session.get(Tenant, "alpha") is None
-        assert (await session.get(User, account["user_id"])).tenant_id is None
+        assert await get_row(session, Tenant, "alpha") is None
+        assert (await get_row(session, User, account["user_id"])).tenant_id is None
 
 
 async def test_database_restricts_deleting_an_occupied_company(client, session_factory):
@@ -251,7 +252,7 @@ async def test_database_restricts_deleting_an_occupied_company(client, session_f
             await session.execute(delete(Tenant).where(Tenant.tenant_id == "alpha"))
             await session.commit()
         await session.rollback()
-        assert await session.get(Tenant, "alpha") is not None
+        assert await get_row(session, Tenant, "alpha") is not None
 
 
 async def test_no_extra_tenant_management_endpoints(client):

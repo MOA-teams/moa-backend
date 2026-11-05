@@ -1,3 +1,4 @@
+from conftest import get_row
 import asyncio
 from uuid import uuid4
 
@@ -20,31 +21,31 @@ def writing(actor, key=None):
     return {**actor["headers"], "Idempotency-Key": key or uuid4().hex}
 
 
-async def test_creation_persists_ordered_messages_and_english_values(client, customer, session_factory):
+async def test_creation_persists_ordered_messages_and_contract_values(client, customer, session_factory):
     response = await client.post(BASE, headers=writing(customer), json={
-        "message": "  오류가 나요  ", "customer_category": "bug", "env": {"os": "iOS 18", "error_code": "E-502"},
+        "message": "  오류가 나요  ", "customer_category": "기능 오류", "env": {"os": "iOS 18", "error_code": "E-502"},
     })
     assert response.status_code == 201
     body = response.json()
-    assert type(body["inquiry_id"]) is int and body["inquiry_id"] == 1
-    assert body["status"] == "received"
+    assert body["inquiry_id"] == "Q-1001"
+    assert body["status"] == "접수"
     assert body["auto_message"]["sender"] == "ai_auto"
-    assert body["auto_message"]["message_type"] == "acknowledgement"
+    assert body["auto_message"]["message_type"] == "접수 안내"
     async with session_factory() as session:
-        inquiry = await session.get(Inquiry, body["inquiry_id"])
-        assert (inquiry.customer_id, inquiry.tenant_id, inquiry.revision, inquiry.last_message_sequence) == (customer["user_id"], "alpha", 1, 2)
+        inquiry = await get_row(session, Inquiry, body["inquiry_id"])
+        assert (inquiry.customer_id, inquiry.tenant_id, inquiry.revision, inquiry.last_message_sequence) == (customer["internal_id"], "alpha", 1, 2)
         assert inquiry.category is None and inquiry.urgency is None
         assert inquiry.title == "오류가 나요"
         assert inquiry.created_at.utcoffset() is not None
         messages = (await session.scalars(select(Message).order_by(Message.sequence))).all()
         assert [(m.sequence, m.text) for m in messages] == [(1, "  오류가 나요  "), (2, body["auto_message"]["text"])]
-        assert await session.scalar(text("SELECT status::text FROM inquiries")) == "received"
-        assert await session.scalar(text("SELECT customer_category::text FROM inquiries")) == "bug"
+        assert await session.scalar(text("SELECT status::text FROM inquiries")) == "접수"
+        assert await session.scalar(text("SELECT customer_category::text FROM inquiries")) == "기능 오류"
 
 
 @pytest.mark.parametrize("payload", [
     {}, {"message": ""}, {"message": " \n "}, {"message": "a" * 10001},
-    {"message": "x", "customer_category": "기능 오류"}, {"message": "x", "customer_category": "BUG"},
+    {"message": "x", "customer_category": "bug"}, {"message": "x", "customer_category": "BUG"},
     {"message": "x", "tenant_id": "beta"}, {"message": "x", "customer_id": 999},
     {"message": "x", "created_at": "2026-11-05T12:00:00+09:00"},
     {"message": "x", "attachments": [1, 1]}, {"message": "x", "attachments": [True]},
@@ -113,12 +114,12 @@ async def test_append_increments_revision_and_replay_does_not(client, customer, 
     assert response.json()["inquiry_revision"] == 2
     replay = await client.post(path, headers=writing(customer, "append"), json={"text": "  추가 내용  "})
     assert replay.json() == response.json()
-    conflict = await client.post(path, headers=writing(customer, "append"), json={"text": "other"})
+    conflict = await client.post(path, headers=writing(customer, "append"), json={"text": "기타"})
     assert conflict.status_code == 409
     async with session_factory() as session:
-        row = await session.get(Inquiry, inquiry_id)
+        row = await get_row(session, Inquiry, inquiry_id)
         assert row.revision == 2 and row.last_message_sequence == 3
-        assert await session.scalar(select(Message.text).where(Message.message_id == response.json()["message_id"])) == "  추가 내용  "
+        assert await session.scalar(select(Message.text).where(Message.public_id == response.json()["message_id"])) == "  추가 내용  "
 
 
 @pytest.mark.parametrize("payload", [{}, {"text": " "}, {"text": "x", "sender": "agent"}, {"text": "x", "sender": "ai_auto"}, {"text": "x", "attachments": [1, 1]}])
@@ -136,7 +137,7 @@ async def test_concurrent_appends_have_contiguous_committed_order(client, custom
     assert all(response.status_code == 201 for response in responses)
     assert sorted(response.json()["inquiry_revision"] for response in responses) == list(range(2, 10))
     async with session_factory() as session:
-        sequences = (await session.scalars(select(Message.sequence).where(Message.inquiry_id == inquiry_id).order_by(Message.sequence))).all()
+        sequences = (await session.scalars(select(Message.sequence).where(Message.inquiry_id == select(Inquiry.inquiry_id).where(Inquiry.public_id == inquiry_id).scalar_subquery()).order_by(Message.sequence))).all()
         assert sequences == list(range(1, 11))
 
 
@@ -145,7 +146,7 @@ async def test_cursor_pages_empty_poll_and_new_message(client, customer, inquiry
     first = (await client.get(path, headers=customer["headers"], params={"limit": 1})).json()
     assert len(first["messages"]) == 1 and first["has_more"]
     second = (await client.get(path, headers=customer["headers"], params={"cursor": first["next_cursor"], "limit": 1})).json()
-    assert not second["has_more"] and second["messages"][0]["message_type"] == "acknowledgement"
+    assert not second["has_more"] and second["messages"][0]["message_type"] == "접수 안내"
     assert first["messages"][0]["message_id"] != second["messages"][0]["message_id"]
     empty = (await client.get(path, headers=customer["headers"], params={"cursor": second["next_cursor"]})).json()
     assert empty["messages"] == [] and empty["next_cursor"] == second["next_cursor"]
@@ -187,7 +188,7 @@ async def test_invalid_cursor(client, customer, inquiry, cursor):
 async def test_cursor_cannot_be_reused_for_another_inquiry_or_admin(client, customer, inquiry, agent):
     path = f"{BASE}/{inquiry['inquiry_id']}"
     cursor = (await client.get(path, headers=customer["headers"])).json()["next_cursor"]
-    other = (await client.post(BASE, headers=writing(customer), json={"message": "other"})).json()
+    other = (await client.post(BASE, headers=writing(customer), json={"message": "기타"})).json()
     assert (await client.get(f"{BASE}/{other['inquiry_id']}", headers=customer["headers"], params={"cursor": cursor})).status_code == 400
     assert (await client.get(f"/api/v1/admin/inquiries/{inquiry['inquiry_id']}", headers=agent["headers"], params={"cursor": cursor})).status_code == 400
     encoded, signature = cursor.split(".")
@@ -221,24 +222,24 @@ async def test_role_and_unassigned_and_authentication(client, make_actor):
 async def test_closed_inquiry_rejected_and_answered_reopened(client, customer, inquiry, session_factory):
     inquiry_id = inquiry["inquiry_id"]
     async with session_factory() as session:
-        row = await session.get(Inquiry, inquiry_id)
+        row = await get_row(session, Inquiry, inquiry_id)
         row.status = InquiryStatus.CLOSED
         await session.commit()
     response = await client.post(f"{BASE}/{inquiry_id}/messages", headers=writing(customer, "closed"), json={"text": "x"})
     assert response.status_code == 409 and response.json()["error"]["code"] == "INQUIRY_CLOSED"
     async with session_factory() as session:
-        row = await session.get(Inquiry, inquiry_id)
+        row = await get_row(session, Inquiry, inquiry_id)
         row.status = InquiryStatus.ANSWERED
         await session.commit()
     response = await client.post(f"{BASE}/{inquiry_id}/messages", headers=writing(customer, "closed"), json={"text": "x"})
-    assert response.status_code == 201 and response.json()["status"] == "received"
+    assert response.status_code == 201 and response.json()["status"] == "접수"
 
 
 async def test_failed_creation_rolls_back_all_writes_and_allows_retry(client, customer, session_factory):
     async with session_factory() as session:
-        await session.execute(text("ALTER TABLE messages ADD CONSTRAINT test_reject_ack CHECK (message_type <> 'acknowledgement')"))
+        await session.execute(text("ALTER TABLE messages ADD CONSTRAINT test_reject_ack CHECK (message_type <> '접수 안내')"))
         await session.commit()
-    user = AuthenticatedUser(user_id=customer["user_id"], email="customer@example.com", role="customer", tenant_id="alpha")
+    user = AuthenticatedUser(user_id=customer["user_id"], internal_user_id=customer["internal_id"], email="customer@example.com", role="customer", tenant_id="alpha")
     async with session_factory() as session:
         with pytest.raises(IntegrityError):
             await create_inquiry(session, user=user, payload=InquiryCreateRequest(message="atomic"), key="retry")

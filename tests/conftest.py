@@ -138,8 +138,8 @@ async def make_actor(session_factory):
             session.add(user)
             await session.commit()
             return {
-                "user_id": user.user_id, "role": role, "tenant_id": tenant_id,
-                "headers": {"Authorization": f"Bearer {create_access_token(user.user_id, user.role)}"},
+                "user_id": user.public_id, "internal_id": user.user_id, "role": role, "tenant_id": tenant_id,
+                "headers": {"Authorization": f"Bearer {create_access_token(user.public_id, user.role)}"},
             }
     return create
 
@@ -172,7 +172,7 @@ async def foreign_agent(make_actor):
 @pytest.fixture
 async def inquiry(client, customer):
     response = await client.post("/api/v1/inquiries", headers={**customer["headers"], "Idempotency-Key": "initial"},
-                                 json={"message": "첫 문의", "customer_category": "bug"})
+                                 json={"message": "첫 문의", "customer_category": "기능 오류"})
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -217,3 +217,10 @@ async def fake_storage():
     finally:
         app.dependency_overrides.pop(get_s3_storage, None)
         get_s3_storage.cache_clear()
+
+
+async def get_row(session, model, key):
+    from sqlalchemy import select
+    if isinstance(key, str) and hasattr(model, "public_id"):
+        return await session.scalar(select(model).where(model.public_id == key))
+    return await session.get(model, key)

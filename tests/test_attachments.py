@@ -1,3 +1,4 @@
+from conftest import get_row
 import asyncio
 import io
 import logging
@@ -36,14 +37,14 @@ async def test_upload_and_refresh_download_url_keep_only_key_in_db(client, custo
     response = await upload(client, customer)
     assert response.status_code == 201
     body = response.json()
-    assert type(body["attachment_id"]) is int
+    assert body["attachment_id"] == "ATT-0001"
     assert body["mime"] == "image/png" and body["size"] == len(PNG) and body["file_name"] == "error.png"
     expiry = datetime.fromisoformat(body["expires_at"])
     assert 299 <= (expiry - before).total_seconds() <= 305
     assert not {"storage_key", "uploader_id", "tenant_id"} & set(body)
     async with session_factory() as session:
-        row = await session.get(Attachment, body["attachment_id"])
-        assert row.storage_key.startswith(f"attachments/alpha/{customer['user_id']}/")
+        row = await get_row(session, Attachment, body["attachment_id"])
+        assert row.storage_key.startswith(f"attachments/alpha/{customer['internal_id']}/")
         assert row.storage_key.endswith(".png") and "error.png" not in row.storage_key
         assert row.message_id is None
         assert fake_storage.objects[row.storage_key] == PNG
@@ -118,7 +119,7 @@ async def test_concurrent_linking_has_one_message_owner(client, customer, fake_s
     assert sorted(response.status_code for response in responses) == [201, 409]
     async with session_factory() as session:
         assert await session.scalar(select(func.count()).select_from(Inquiry)) == 1
-        assert (await session.get(Attachment, attachment["attachment_id"])).message_id is not None
+        assert (await get_row(session, Attachment, attachment["attachment_id"])).message_id is not None
 
 
 async def test_message_attachment_link_and_replay(client, customer, inquiry, fake_storage, session_factory):
@@ -131,7 +132,7 @@ async def test_message_attachment_link_and_replay(client, customer, inquiry, fak
     replay = await client.post(path, headers=headers, json=payload)
     assert replay.status_code == 201 and replay.json() == response.json()
     async with session_factory() as session:
-        assert (await session.get(Attachment, body["attachment_id"])).message_id == response.json()["message_id"]
+        assert (await get_row(session, Attachment, body["attachment_id"])).message_id == (await get_row(session, Message, response.json()["message_id"])).message_id
     again = await client.post(path, headers={**headers, "Idempotency-Key": "new-key"}, json=payload)
     assert again.status_code == 409
 
@@ -139,13 +140,13 @@ async def test_message_attachment_link_and_replay(client, customer, inquiry, fak
 async def test_failed_inquiry_keeps_attachment_unlinked(client, customer, fake_storage, session_factory):
     body = (await upload(client, customer)).json()
     async with session_factory() as session:
-        await session.execute(text("ALTER TABLE messages ADD CONSTRAINT test_reject_ack CHECK (message_type <> 'acknowledgement')"))
+        await session.execute(text("ALTER TABLE messages ADD CONSTRAINT test_reject_ack CHECK (message_type <> '접수 안내')"))
         await session.commit()
     async with session_factory() as session:
-        user = AuthenticatedUser(user_id=customer["user_id"], email="customer@example.com", role="customer", tenant_id="alpha")
+        user = AuthenticatedUser(user_id=customer["user_id"], internal_user_id=customer["internal_id"], email="customer@example.com", role="customer", tenant_id="alpha")
         with pytest.raises(IntegrityError):
             await create_inquiry(session, user=user, payload=InquiryCreateRequest(message="atomic", attachments=[body["attachment_id"]]), key="retry")
-        assert (await session.get(Attachment, body["attachment_id"])).message_id is None
+        assert (await get_row(session, Attachment, body["attachment_id"])).message_id is None
         assert await session.scalar(select(func.count()).select_from(Message)) == 0
 
 
@@ -168,7 +169,7 @@ async def test_database_failure_compensates_s3_and_logs_failed_cleanup(client, c
     async with session_factory() as session:
         await session.execute(text("ALTER TABLE attachments ADD CONSTRAINT test_reject_attachment CHECK (size < 0)"))
         await session.commit()
-    user = AuthenticatedUser(user_id=customer["user_id"], email="customer@example.com", role="customer", tenant_id="alpha")
+    user = AuthenticatedUser(user_id=customer["user_id"], internal_user_id=customer["internal_id"], email="customer@example.com", role="customer", tenant_id="alpha")
     for fail_delete in (False, True):
         fake_storage.fail_delete = fail_delete
         file = UploadFile(io.BytesIO(PNG), filename="x.png", headers=Headers({"content-type": "image/png"}))
