@@ -4,7 +4,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0008_public_contract"
-down_revision = "0005_add_source_customer_id"
+down_revision = "0007_document_attachments"
 branch_labels = None
 depends_on = None
 
@@ -17,6 +17,9 @@ SPECS = {
     "attachment": ("ATT-", 4, 1),
 }
 ENUMS = {
+    "doc_type": {"policy": "정책", "faq": "FAQ", "feature_spec": "기능 명세", "release_note": "릴리즈 노트"},
+    "doc_status": {"valid": "유효", "retired": "폐기"},
+    "document_indexing_status": {"pending": "대기", "running": "처리 중", "completed": "완료", "failed": "실패"},
     "inquiry_category": {
         "usage": "이용 방법",
         "account": "계정",

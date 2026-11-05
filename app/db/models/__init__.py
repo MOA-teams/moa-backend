@@ -11,3 +11,8 @@ from app.db.models.idempotency import IdempotencyRecord
 __all__ += ["Inquiry", "Message", "Attachment", "IdempotencyRecord"]
 
 from app.db.models.analysis import AnalysisRequest, AnalysisRun, AnalysisDraft, ClassificationHistory
+from app.db.models.document import Document, DocumentCounter, DocumentJob, DocumentVersion
+
+__all__ += ["Document", "DocumentCounter", "DocumentJob", "DocumentVersion"]
+
+__all__ += ["AnalysisRequest", "AnalysisRun", "AnalysisDraft", "ClassificationHistory"]

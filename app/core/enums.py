@@ -59,3 +59,22 @@ class CheckStatus(str, Enum):
     FAIL = "실패"
     UNKNOWN = "확인 불가"
     SKIPPED = "미실행"
+
+
+class DocType(str, Enum):
+    POLICY = "정책"
+    FAQ = "FAQ"
+    FEATURE_SPEC = "기능 명세"
+    RELEASE_NOTE = "릴리즈 노트"
+
+
+class DocStatus(str, Enum):
+    VALID = "유효"
+    RETIRED = "폐기"
+
+
+class IndexingStatus(str, Enum):
+    PENDING = "대기"
+    RUNNING = "처리 중"
+    COMPLETED = "완료"
+    FAILED = "실패"

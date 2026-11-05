@@ -12,6 +12,8 @@ class Attachment(BaseEntity):
         Index("ix_attachments_uploader_id", "uploader_id"),
         Index("ix_attachments_message_id", "message_id"),
         CheckConstraint("size > 0 AND size <= 10485760", name="ck_attachments_size"),
+        CheckConstraint("purpose IN ('inquiry', 'document')", name="ck_attachments_purpose"),
+        CheckConstraint("message_id IS NULL OR purpose = 'inquiry'", name="ck_attachment_message_purpose"),
     )
 
     attachment_id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -22,3 +24,4 @@ class Attachment(BaseEntity):
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     mime: Mapped[str] = mapped_column(String(100), nullable=False)
     size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    purpose: Mapped[str] = mapped_column(String(20), nullable=False, server_default="inquiry")

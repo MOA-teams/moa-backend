@@ -32,6 +32,21 @@ class S3Storage:
         except (BotoCoreError, ClientError):
             raise storage_error() from None
 
+    def read(self, key: str) -> bytes:
+        """DB에서 권한 확인을 마친 객체만 읽고, 업로드 한도를 다시 적용한다."""
+        try:
+            response = self.client.get_object(Bucket=self.bucket, Key=key)
+            body = response["Body"]
+            try:
+                data = body.read(10 * 1024 * 1024 + 1)
+            finally:
+                body.close()
+            if not data or len(data) > 10 * 1024 * 1024:
+                raise APIError(400, "INVALID_STORED_FILE", "저장된 파일 크기가 올바르지 않습니다.")
+            return data
+        except (BotoCoreError, ClientError):
+            raise storage_error() from None
+
     def download_url(self, key: str) -> str:
         try:
             return self.client.generate_presigned_url(
