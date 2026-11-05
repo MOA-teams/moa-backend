@@ -30,6 +30,7 @@ RunID = Annotated[
 
 
 class SnapshotMessage(Contract):
+    answer_id: str | None = None
     message_id: MessageID
     sender: MessageSender
     text: str = Field(min_length=1, max_length=50000)

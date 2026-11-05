@@ -34,6 +34,7 @@ class AnalysisRequest(BaseEntity):
     inquiry_id: Mapped[int] = mapped_column(
         ForeignKey("inquiries.inquiry_id", ondelete="CASCADE"), nullable=False
     )
+    backend_knowledge_revision: Mapped[int | None] = mapped_column(BigInteger)
     inquiry_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     based_on_message_id: Mapped[int] = mapped_column(
         ForeignKey("messages.message_id", ondelete="CASCADE"), nullable=False

@@ -17,6 +17,10 @@ def utcnow():
 
 
 async def lock_document(session, doc_id):
+    from app.services.knowledge import lock_knowledge
+    tenant_id = await session.scalar(select(Document.tenant_id).where(Document.doc_id == doc_id))
+    if tenant_id is not None:
+        await lock_knowledge(session, tenant_id)
     return await session.scalar(select(Document).where(Document.doc_id == doc_id).with_for_update().execution_options(populate_existing=True))
 
 

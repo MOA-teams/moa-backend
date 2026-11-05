@@ -327,7 +327,7 @@ multipart/form-data의 file 바이너리 필드와 purpose 필드를 사용한�
 
 담당: **백엔드**
 
-상담 종료 후 평가. rating/resolved/comment 중 하나 이상. 별점 없어도 해결 여부 기록. 무응답은 미확인.
+상담 종료 후 소유 고객의 최초 평가. Idempotency-Key 필수. rating(정수 1~5)/resolved(boolean)/comment(1~10000자, 공백만 입력 불가) 중 하나 이상. resolved=false도 유효하며 별점은 해결 여부를 대신하지 않는다. 종료 당시 마지막 답변에 연결하고 응답에 answer_id/resolved/comment도 포함한다. 동일 키·본문 재시도 외 재제출은 409다. true는 해결 확인, false는 미해결, 무응답은 미확인이다. 미해결 평가로 상담을 재개하지 않는다.
 
 요청 JSON:
 
@@ -501,6 +501,8 @@ multipart/form-data의 file 바이너리 필드와 purpose 필드를 사용한�
 
 ### A05 · POST /admin/inquiries/{inquiry_id}/answers
 
+6단계 구현 계약: Idempotency-Key 필수. 상세 조회의 `backend_knowledge_revision`을 요청의 `expected_backend_knowledge_revision`으로 보낸다. 초안 ID/revision은 함께 지정하거나 직접 작성 시 둘 다 null이다. 201에는 변경 후 `inquiry_revision`이 포함된다. 원본 AI 검수와 담당자 승인은 분리 보존하며 최종 전달은 채팅 메시지 DB 커밋으로 확정한다. 검수 실패도 담당자가 승인할 수 있지만 최신성·권한·문서 검사는 생략하지 않는다. 코드 근거는 GitHub 검증 전까지 거절한다. [상세 계약·오류 처리](AnswerOperations.md).
+
 담당: **백엔드**
 
 최종 수정·담당자 승인·발송. 최신 문의/고객 메시지/초안/지식 revision 검증. 근거는 본 테넌트에서 조회된 자료만 허용. 수동 작성 시 draft_id/draft_revision=null. 자동 발송은 이 담당자 API를 가짜 계정으로 호출하지 않고 동일한 내부 저장·발송 로직을 사용.
@@ -513,6 +515,7 @@ multipart/form-data의 file 바이너리 필드와 purpose 필드를 사용한�
   "draft_revision": 1,
   "expected_inquiry_revision": 3,
   "expected_last_customer_message_id": "MSG-000003",
+  "expected_backend_knowledge_revision": 7,
   "answer_text": "담당자가 확인한 안내입니다.",
   "evidence": {
     "docs": [
@@ -532,6 +535,7 @@ multipart/form-data의 file 바이너리 필드와 purpose 필드를 사용한�
 {
   "answer_id": "A-1001",
   "message_id": "MSG-000005",
+  "inquiry_revision": 4,
   "inquiry_id": "Q-1001",
   "status": "답변 완료",
   "delivery_mode": "담당자",
@@ -544,7 +548,7 @@ multipart/form-data의 file 바이너리 필드와 purpose 필드를 사용한�
 
 담당: **백엔드**
 
-상담 종료·평가 요청. 종료만으로 해결 성공 처리하지 않는다.
+상담 종료·평가 요청. Idempotency-Key 필수. 최종 답변이 있는 문의만 종료하며 revision을 증가시킨다. 요청의 resolution_status는 미확인만 허용한다. 응답은 inquiry_revision과 closed_at도 포함한다. 종료만으로 해결 성공 처리하지 않는다. 같은 키 재시도는 기존 결과를 반환하고 재개 API는 제공하지 않는다.
 
 요청 JSON:
 
