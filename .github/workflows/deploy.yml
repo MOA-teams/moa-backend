@@ -17,6 +17,10 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Import check
+        # DB 접속 없는 import 검사 전용 값이며 배포 단계에는 전달하지 않습니다.
+        env:
+          DATABASE_URL: postgresql+asyncpg://ci:ci@127.0.0.1:5432/moa_ci
+          JWT_SECRET_KEY: ci-only-import-check-signing-key-not-for-deployment
         run: python -c "from app.main import app; print(app.title)"
 
   deploy:
