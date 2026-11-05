@@ -111,16 +111,16 @@ class InquiryChatResponse(BaseModel):
 class CustomerInquirySummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    inquiry_id: str = Field(validation_alias=AliasChoices("public_id", "inquiry_id"))
-    title: str
-    status: InquiryStatus
-    created_at: datetime
+    inquiry_id: str = Field(validation_alias=AliasChoices("public_id", "inquiry_id"), description="외부 문자열 문의 ID. 대화 조회에 사용합니다.", examples=["Q-1048"])
+    title: str = Field(description="문의 생성 시 첫 고객 메시지에서 저장한 제목", examples=["저장할 때 오류가 발생해요."])
+    status: InquiryStatus = Field(description="현재 상담 상태. 종료된 문의도 목록에 포함됩니다.")
+    created_at: datetime = Field(description="최초 문의 접수 시각, 타임존 포함 ISO 8601")
 
 
 class CustomerInquiryListResponse(BaseModel):
-    items: list[CustomerInquirySummary]
-    next_cursor: str | None
-    has_more: bool
+    items: list[CustomerInquirySummary] = Field(description="본인 문의를 최근 접수순으로 반환. 문의가 없으면 빈 배열")
+    next_cursor: str | None = Field(description="다음 목록 조회에 그대로 전달할 cursor. 마지막 페이지는 null. 채팅 cursor와 별도로 관리합니다.")
+    has_more: bool = Field(description="뒤에 조회할 문의가 더 있는지 여부")
 
 
 class InquirySummary(BaseModel):

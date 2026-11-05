@@ -24,6 +24,35 @@ COMMON_ERRORS = ("VALIDATION_ERROR", "INVALID_ACCESS_TOKEN", "FORBIDDEN", "TENAN
 @router.get(
     "", response_model=CustomerInquiryListResponse,
     summary="본인의 문의 목록 조회",
+    description="""Bearer access token으로 인증한 기업 소속 customer 전용입니다.
+같은 계정·기업의 문의를 최근 접수순(created_at 내림차순, 같은 시각은 내부 숫자 ID 내림차순)으로 반환합니다.
+진행 중·답변 완료·상담 종료 및 '새 상담'으로 떠난 과거 문의를 모두 포함합니다.
+cid·customer_id·tenant_id는 조회 조건으로 받지 않으며 인증 사용자의 DB 소속·소유권만 사용합니다.
+
+최초 조회는 cursor를 생략하고 limit은 기본 20, 최소 1, 최대 100입니다.
+has_more=true이면 next_cursor를 그대로 다음 요청의 cursor에 전달하세요.
+마지막 페이지는 next_cursor=null·has_more=false이며, 문의가 없으면 items=[]입니다.
+목록 cursor는 사용자·기업·용도에 묶여 있으므로 관리자 목록 또는 채팅 cursor와 따로 관리합니다.
+새 문의를 확인하려면 cursor 없이 첫 페이지를 다시 조회하세요.
+
+title은 첫 메시지에서 저장한 제목이며 내부 AI 분석·초안·그룹 정보는 포함하지 않습니다.
+선택한 문의의 대화는 GET /api/v1/inquiries/{inquiry_id}로 조회합니다.
+조회는 읽음·접속 상태·문의 revision·수정 시각을 변경하지 않습니다. Idempotency-Key는 필요 없습니다.
+인증 실패는 401, 고객 역할이 아니거나 기업 미소속이면 403, 잘못된 cursor·limit은 400입니다.
+
+마지막 페이지 응답 예시:
+```json
+{
+  "items": [{"inquiry_id": "Q-1048", "title": "저장할 때 오류가 발생해요.",
+             "status": "담당자 확인 중", "created_at": "2026-11-05T16:00:00+09:00"}],
+  "next_cursor": null,
+  "has_more": false
+}
+```
+본인 문의가 없는 경우:
+```json
+{"items": [], "next_cursor": null, "has_more": false}
+```""",
     responses=documented_errors(*COMMON_ERRORS, "INVALID_CURSOR", bearer_auth=True),
 )
 async def history(
