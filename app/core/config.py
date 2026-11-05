@@ -1,3 +1,4 @@
+from urllib.parse import urlsplit
 from functools import lru_cache
 from pathlib import Path
 
@@ -26,6 +27,15 @@ class Settings(BaseSettings):
     aws_region: str | None = None
     s3_bucket_name: str | None = None
     s3_presigned_url_expire_seconds: int = Field(default=300, gt=0, le=3600)
+
+    @field_validator("ai_base_url")
+    @classmethod
+    def validate_ai_url(cls, value):
+        if value:
+            parsed = urlsplit(value)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+                raise ValueError("AI 서버의 http(s) 기본 주소가 필요합니다.")
+        return value
 
     @field_validator("jwt_secret_key")
     @classmethod

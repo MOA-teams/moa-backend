@@ -1,5 +1,5 @@
 from app.schemas.analysis import Analysis, SimilarInquiries, DraftView, Verification
-from app.core.enums import RunStatus
+from app.core.enums import RunStatus, DraftResult
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -135,6 +135,7 @@ class InquiryDetailResponse(InquiryChatResponse):
     additional_question: str | None = None
     similar_inquiries: SimilarInquiries | None = None
     knowledge_revision: int | None = None
+    draft_result: DraftResult | None = None
     group_id: None = None
     draft: DraftView | None = None
     verification: Verification | None = None

@@ -204,4 +204,4 @@ async def detail_analysis(session,inquiry):
     return {'analysis_request_id':request.request_id,'latest_run_id':request.run_id,'run_status':request.run_status,
         'analysis_error':request.error_code,'analysis':result.analysis if result else None,
         'additional_question':result.additional_question if result else None,'similar_inquiries':result.similar_inquiries if result else None,
-        'knowledge_revision':result.knowledge_revision if result else None,'draft':draft_view,'verification':result.verification if result else None}
+        'knowledge_revision':result.knowledge_revision if result else None,'draft_result':result.draft_result if result else None,'draft':draft_view,'verification':result.verification if result else None}
