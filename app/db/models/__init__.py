@@ -21,3 +21,6 @@ from app.db.models.automatic_response import AutomaticResponse
 from app.db.models.answer import Answer, Feedback
 
 __all__ += ["Answer", "Feedback"]
+
+from app.db.models.github import GitHubAuthorization, GitHubIntegration, GitHubEvent, GitHubJob, GitHubSource
+__all__ += ["GitHubAuthorization", "GitHubIntegration", "GitHubEvent", "GitHubJob", "GitHubSource"]

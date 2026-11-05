@@ -22,6 +22,7 @@ from app.core.ids import IDSpaceExhausted
 from app.core.rag import RagError, get_rag_client
 from app.db.models import (
     AutomaticResponse,
+    GitHubIntegration,
     Document,
     Answer,
     DocumentVersion,
@@ -75,6 +76,14 @@ async def current_evidence(session, inquiry, request, result, policy):
     knowledge = await lock_knowledge(session, inquiry.tenant_id)
     if knowledge.knowledge_revision != request.backend_knowledge_revision:
         return "KNOWLEDGE_CHANGED", {}
+    # 분석이 GitHub 동기화 중 생성되면 변경번호가 같아도 연결 문서는 아직 최신이 아니다.
+    integration = await session.scalar(
+        select(GitHubIntegration).where(GitHubIntegration.tenant_id == inquiry.tenant_id)
+    )
+    if integration and integration.status in {"동기화 중", "동기화 실패"}:
+        bound = {b["doc_id"] for b in integration.pending_bindings + integration.document_bindings}
+        if any(doc_id in bound for doc_id, _ in refs):
+            return "GITHUB_SYNC_PENDING", {}
     checked = {}
     rag = get_rag_client()
     for doc_id, version in sorted(refs):

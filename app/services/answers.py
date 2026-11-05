@@ -17,6 +17,7 @@ from app.core.errors import APIError
 from app.core.rag import RagError
 from app.db.models import (
     Answer,
+    GitHubIntegration,
     AnalysisDraft,
     AnalysisRequest,
     AnalysisRun,
@@ -130,6 +131,12 @@ async def verify_evidence(session, inquiry, evidence, rag):
             "CODE_EVIDENCE_UNVERIFIED",
             "코드 근거는 GitHub 최신성 검증 후 사용할 수 있습니다.",
         )
+    # GitHub 변경 감지 후 실제 변경 경로를 수집하는 동안 연결 문서로 발송하지 않는다.
+    integration = await session.scalar(select(GitHubIntegration).where(GitHubIntegration.tenant_id == inquiry.tenant_id))
+    if integration and integration.status in {"동기화 중", "동기화 실패"}:
+        bound = {b["doc_id"] for b in integration.pending_bindings + integration.document_bindings}
+        if any(e.doc_id in bound for e in evidence.docs):
+            raise APIError(503, "GITHUB_SYNC_PENDING", "연결된 GitHub 자료의 최신성 확인이 진행 중입니다.")
     for external_id, number in sorted({(e.doc_id, e.version) for e in evidence.docs}):
         document = await session.scalar(
             select(Document)

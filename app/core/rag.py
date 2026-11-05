@@ -66,6 +66,19 @@ class RagClient:
         except (ValidationError, ValueError):
             raise RagError("AI_INVALID_RESPONSE") from None
 
+    async def submit_github(self, tenant, payload):
+        result = await self.request("POST", "/internal/v1/rag/sources", tenant, GitHubAccepted, expected=202, payload=payload)
+        if (result.source_id, result.version) != (payload["source_id"], payload["version"]):
+            raise RagError("AI_INVALID_RESPONSE")
+        return result
+
+    async def view_github(self, tenant, payload):
+        result = await self.request("GET", f"/internal/v1/rag/sources/{quote(payload['source_id'], safe='')}/versions/{quote(payload['version'], safe='')}",
+            tenant, GitHubSourceView, expected=200, params={"source_type": payload["source_type"]})
+        if (result.source_id, result.version) != (payload["source_id"], payload["version"]):
+            raise RagError("AI_INVALID_RESPONSE")
+        return result
+
     async def submit(self, tenant: str, payload: dict) -> Accepted:
         result = await self.request("POST", "/internal/v1/rag/sources", tenant, Accepted, expected=202, payload=payload)
         if (result.source_id, result.version) != (payload["source_id"], payload["version"]):
@@ -92,3 +105,18 @@ def get_rag_client() -> RagClient:
     settings = get_settings()
     token = settings.ai_service_token.get_secret_value() if settings.ai_service_token else None
     return RagClient(settings.ai_base_url, token)
+
+
+class GitHubAccepted(BaseModel):
+    model_config = ConfigDict(strict=True)
+    source_id: str
+    version: str
+    indexing_status: Literal["대기", "처리 중", "완료", "실패"]
+
+
+class GitHubSourceView(GitHubAccepted):
+    source_revision: int
+    status: Literal["유효", "폐기", "재검토 필요", "비활성"]
+    review_required: bool
+    searchable: bool
+    error: str | None = None

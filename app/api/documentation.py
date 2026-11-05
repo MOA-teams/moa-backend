@@ -57,6 +57,7 @@ MOA 프론트엔드 연동을 위한 인증·기업 소속·문의·채팅·S3 �
 """
 
 OPENAPI_TAGS = [
+    {"name": "github", "description": "관리자 GitHub App 인증·저장소 선택·보안 레벨 설정과 서명 Webhook 동기화. GitHubOperations.md 참조."},
     {"name": "documents", "description": "같은 기업 agent/admin의 문서 원본·불변 버전 관리와 RAG 인덱싱 상태 조회."},
     {"name": "auth", "description": "회원가입·로그인·토큰 갱신·내 정보 조회. 고객·담당자·관리자 모두 같은 인증 흐름을 사용합니다."},
     {"name": "tenants", "description": "기업 생성·본인 소속 연결·내 기업 조회. 사용자 한 명은 한 기업에만 소속됩니다."},
@@ -131,6 +132,18 @@ ERROR_DOCUMENTATION.update({
     "PIPELINE_IDENTITY_MISMATCH": (409, "등록된 분석 요청과 일치하지 않습니다.", "문의·revision·기준 메시지 불일치"),
     "PIPELINE_RESULT_CONFLICT": (409, "이미 저장된 최종 결과와 다릅니다.", "같은 run의 다른 최종 결과"),
     "NON_TERMINAL_RESULT": (400, "완료 또는 실패 결과만 수신합니다.", "진행 중 결과를 콜백으로 전송함"),
+})
+
+
+ERROR_DOCUMENTATION.update({
+    "GITHUB_AUTHORIZATION_INVALID": (400, "GitHub 연결을 다시 시작해 주세요.", "인증 만료·재사용 또는 소유자 불일치"),
+    "GITHUB_REPOSITORY_NOT_FOUND": (404, "연결 가능한 저장소가 아닙니다.", "인증한 저장소 목록에 없음"),
+    "GITHUB_REPOSITORY_CONNECTED": (409, "이미 연결된 저장소입니다.", "다른 기업에 연결된 저장소"),
+    "GITHUB_NOT_CONFIGURED": (503, "GitHub 연결 설정을 확인해 주세요.", "GitHub App 설정 누락"),
+    "GITHUB_UNAVAILABLE": (503, "잠시 후 다시 시도해 주세요.", "GitHub 응답 실패 또는 호출 제한"),
+    "GITHUB_SIGNATURE_INVALID": (401, "Webhook 서명이 올바르지 않습니다.", "원본 bytes HMAC 검증 실패"),
+    "GITHUB_DELIVERY_CONFLICT": (409, "동일 delivery ID에 다른 본문입니다.", "이벤트 식별자 충돌"),
+    "GITHUB_SYNC_PENDING": (503, "GitHub 자료의 최신성 확인이 진행 중입니다.", "동기화 중 연결 문서 승인 차단"),
 })
 
 

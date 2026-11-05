@@ -348,8 +348,8 @@ GET /api/v1/inquiries/{inquiry_id}?since=2026-11-05T10:00:00+09:00
 ### 5-1. 레포·브랜치
 | 항목 | 값 |
 |---|---|
-| Org | ⚠ 결정 필요 (예: `syncnote-demo`) |
-| 레포 | ⚠ 결정 필요 (예: `syncnote-app`) |
+| Org | `MOA-demo` |
+| 레포 | `syncnote-app` |
 | 감시 브랜치 | `main` |
 | 요금 변경 PR 브랜치 | `release/pricing` |
 | 데모 시작 태그 | `demo-start` |
@@ -386,10 +386,12 @@ config/prod.env.example       보안 시연용 가짜 키
 전체 커밋 목록은 `싱크노트_개발명세서.md` 11장 기준.
 
 ### 5-4. GitHub App·webhook
-- 권한: Contents **Read**, Metadata **Read**, Issues **Read & Write**, Pull requests **Read**
-- 이벤트: ⚠ 결정 필요 — `push`(main) / `pull_request`(closed + merged)
-- webhook URL: ⚠ 결정 필요 (배포 서버 또는 터널 주소)
-- App 생성·설치 담당: ⚠ 결정 필요
+- 8단계 구현: [GitHub 연결·프론트 명세](GitHubOperations.md). GitHub 사용자 OAuth state·PKCE 및 저장소 admin 권한으로 설치 소유권을 검증한다. 설치 ID만으로 연결하지 않는다.
+- 이번 단계 권한: Contents **Read**, Metadata **Read**. Issues 쓰기는 9단계 H04 구현 때 별도로 확장한다.
+- 이벤트: 감시 브랜치 `push`. PR merge는 결과 push로 처리하며 중복 PR 이벤트를 수집하지 않는다. 설치 삭제·중지·저장소 제외도 기존 소스를 차단한다.
+- 보안 레벨 0은 GitHub 미사용, 1은 코드 본문 없이 경로·커밋 메시지, 2는 선택 경로 코드의 제외·비밀 마스킹 후 내부용 RAG. 3은 미지원이며 요청 시 400이다. 1·2의 provider는 external_llm이다.
+- `document_bindings`로 경로와 같은 기업 문서를 연결한다. 변경 시 최신 문서를 재검토·검색 제외하며 정책 값은 자동 확정하지 않는다.
+- webhook URL은 배포 HTTPS 주소의 `/api/v1/integrations/github/webhook`. App 생성·설치 및 프론트 콜백 화면은 운영·프론트 담당의 연결 단계로 남아 있다.
 
 ### 5-5. 모아가 만드는 이슈 형식
 - 라벨: `bug`, `moa-auto` (리셋 스크립트가 `moa-auto` 기준으로 닫음)
