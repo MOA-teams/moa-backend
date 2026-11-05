@@ -25,7 +25,7 @@ router = APIRouter(prefix="/internal/v1", tags=["pipeline-internal"])
         bearer_auth=True,
     ),
     summary="AI 완료·실패 결과 수신",
-    description="AI 서비스 전용. tenant·run·revision·기준 메시지를 대조합니다. 중복은 duplicate, 오래된 결과는 ignored_stale, 다른 최종 결과는 409입니다. 고객 발송은 수행하지 않습니다.",
+    description="AI 서비스 전용. tenant·run·revision·기준 메시지를 대조합니다. 중복은 duplicate, 오래된 결과는 ignored_stale, 다른 최종 결과는 409입니다. 서버의 테넌트별 자동 응대 정책과 최신성 검사를 통과한 경우에만 고객 메시지를 저장합니다. 실패·불명확한 결과는 담당자 검토로 전환하며 중복 콜백은 재발송하지 않습니다.",
 )
 async def callback(
     payload: PipelineResult,

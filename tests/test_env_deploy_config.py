@@ -115,3 +115,31 @@ def test_cli_invalid_database_does_not_print_values_or_traceback(tmp_path):
     assert result.returncode == 1
     assert "private-invalid-database-url" not in result.stdout + result.stderr
     assert "Traceback" not in result.stderr
+
+
+def test_auto_response_policy_json_survives_runtime_and_systemd(monkeypatch):
+    import json
+    from app.core.config import Settings
+    policy = {"syncnote": {"questions_enabled": True, "answers_enabled": True,
+                           "categories": ["이용 방법"], "public_documents": {"DOC-005": 2}}}
+    payload = PAYLOAD + "AUTO_RESPONSE_POLICIES='" + json.dumps(policy, ensure_ascii=False) + "'\n"
+    values = configure_env.runtime_environment(configure_env.parse_environment(payload))
+    serialized = configure_env.systemd_environment(values)
+    restored = dotenv_values(stream=io.StringIO(serialized), interpolate=False)
+    assert restored == values
+    for key, value in restored.items():
+        monkeypatch.setenv(key, value)
+    configured = Settings(_env_file=None).auto_response_policies["syncnote"]
+    assert configured.questions_enabled and configured.answers_enabled
+    assert configured.public_documents == {"DOC-005": 2}
+    assert configured.categories[0].value == "이용 방법"
+
+
+@pytest.mark.parametrize("policy", ["not-json", "[]", '{"syncnote":{"public_documents":{"DOC-005":true}}}'])
+def test_invalid_auto_response_policy_fails_before_migration(policy, monkeypatch, tmp_path):
+    def forbidden(*args, **kwargs):
+        pytest.fail("유효하지 않은 자동 응대 정책으로 배포 명령을 실행하면 안 됩니다.")
+    monkeypatch.setattr(configure_env.subprocess, "run", forbidden)
+    with pytest.raises(ValueError):
+        configure_env.apply_environment(tmp_path, PAYLOAD + "AUTO_RESPONSE_POLICIES='" + policy + "'\n")
+    assert not (tmp_path / ".env").exists()

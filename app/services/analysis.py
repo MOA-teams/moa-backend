@@ -14,6 +14,7 @@ from app.db.models import (
     AnalysisRun,
     AnalysisDraft,
     ClassificationHistory,
+    AutomaticResponse,
 )
 from app.schemas.analysis import (
     AnalysisAccepted,
@@ -23,6 +24,7 @@ from app.schemas.analysis import (
     PipelineResult,
 )
 from app.services.attachments import require_tenant
+from app.services.automatic_responses import capture_knowledge, handle_automatic_response, response_view
 
 
 def utcnow():
@@ -140,6 +142,7 @@ async def enqueue_analysis(session, inquiry, *, review_only=False):
         inquiry_revision=inquiry.revision,
         based_on_message_id=customer.message_id,
         snapshot=snapshot,
+        knowledge_snapshot=await capture_knowledge(session, inquiry.tenant_id),
         review_only=review_only,
     )
     if len(messages) > 200:
@@ -287,7 +290,7 @@ async def evidence_review(session, inquiry, result):
                 Document.tenant_id == inquiry.tenant_id,
                 Document.ai_source_id == external,
             )
-            .with_for_update()
+            .with_for_update(read=True)
         )
         source = (
             None
@@ -363,6 +366,7 @@ async def apply_result(session, result, *, tenant, lease_token=None):
             or customer.message_id != request.based_on_message_id
         )
         draft = None
+        automatic = None
         if not stale:
             if (
                 result.run_status == RunStatus.COMPLETED
@@ -381,7 +385,8 @@ async def apply_result(session, result, *, tenant, lease_token=None):
                 )
                 session.add(draft)
                 await session.flush()
-            inquiry.status = InquiryStatus.IN_REVIEW
+            if inquiry.status not in (InquiryStatus.ANSWERED, InquiryStatus.NEEDS_INFO):
+                inquiry.status = InquiryStatus.IN_REVIEW
             inquiry.processing_stage = "검토 대기"
             request.run_status = result.run_status
             request.current_stage = result.current_stage
@@ -389,6 +394,9 @@ async def apply_result(session, result, *, tenant, lease_token=None):
             request.error_code = "AI_PIPELINE_FAILED" if result.error else None
             request.phase = "done"
             request.lease_token = request.lease_until = None
+            # 공통 답변 저장이 원본 검수 결과를 함께 보존한다. 최종 hash와 commit은 아래에서 확정한다.
+            run.result = raw
+            automatic = await handle_automatic_response(session, inquiry, request, run, result, draft)
         if stale and lease_token is not None and request.run_id == run.run_id:
             request.phase = "superseded"
             request.lease_token = request.lease_until = None
@@ -399,7 +407,7 @@ async def apply_result(session, result, *, tenant, lease_token=None):
             inquiry_id=inquiry.public_id,
             status=inquiry.status.value,
             draft_id=draft.public_id if draft else None,
-            delivery_action="없음" if stale else "담당자 검토",
+            delivery_action="없음" if stale else automatic.action,
         )
         run.response = response.model_dump(mode="json")
         await session.commit()
@@ -418,8 +426,15 @@ async def detail_analysis(session, inquiry):
     if request is None:
         return {}
     run = await session.get(AnalysisRun, request.run_id) if request.run_id else None
+    automatic = await session.get(AutomaticResponse, request.run_id) if request.run_id else None
+    delivered_current = (
+        automatic is not None and automatic.message_id is not None
+        and automatic.delivered_revision == inquiry.revision
+        and inquiry.latest_analysis_request_id == request.request_id
+        and inquiry.status != InquiryStatus.CLOSED
+    )
     usable = (
-        current_request(inquiry, request)
+        (current_request(inquiry, request) or delivered_current)
         and run is not None
         and run.result is not None
         and run.response["apply_status"] == "applied"
@@ -442,6 +457,7 @@ async def detail_analysis(session, inquiry):
             review_reasons=draft.review_reasons,
         )
     return {
+        "automatic_response": await response_view(session, automatic),
         "analysis_request_id": request.request_id,
         "latest_run_id": request.run_id,
         "run_status": request.run_status,
