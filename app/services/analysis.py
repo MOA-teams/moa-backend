@@ -280,7 +280,7 @@ async def evidence_review(session, inquiry, result):
                 Document.tenant_id == inquiry.tenant_id,
                 Document.ai_source_id == external,
             )
-            .with_for_update()
+            .with_for_update(read=True)
         )
         source = (
             None

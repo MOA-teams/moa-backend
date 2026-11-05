@@ -21,6 +21,7 @@ from app.core.rag import RagError, get_rag_client
 from app.db.models import (
     AutomaticResponse,
     Document,
+    DocumentCounter,
     DocumentVersion,
     Message,
 )
@@ -65,6 +66,31 @@ async def current_evidence(session, inquiry, request, result, policy):
         return "CITATION_UNSUPPORTED", {}
     if request.knowledge_snapshot is None or result.knowledge_revision is None:
         return "KNOWLEDGE_BASELINE_MISSING", {}
+    # 신규 문서는 counter를 먼저 잠그고 생성된다. 같은 행의 공유 잠금으로
+    # 새 문서 삽입을 막고, 모든 기존 문서의 공유 잠금으로 버전/상태 변경을 막는다.
+    # 여러 문의의 발송은 공유 잠금을 함께 보유하므로 문서 순서가 달라도 교착하지 않는다.
+    counter = await session.scalar(
+        select(DocumentCounter)
+        .where(
+            DocumentCounter.tenant_id == inquiry.tenant_id,
+        )
+        .with_for_update(read=True)
+    )
+    if counter is None:
+        return "KNOWLEDGE_BASELINE_MISSING", {}
+    await session.scalars(
+        select(Document)
+        .where(
+            Document.tenant_id == inquiry.tenant_id,
+        )
+        .order_by(Document.doc_id)
+        .with_for_update(read=True)
+    )
+    if (
+        await capture_knowledge(session, inquiry.tenant_id)
+        != request.knowledge_snapshot
+    ):
+        return "KNOWLEDGE_CHANGED", {}
     checked = {}
     rag = get_rag_client()
     for doc_id, version in sorted(refs):
@@ -76,7 +102,7 @@ async def current_evidence(session, inquiry, request, result, policy):
                 Document.tenant_id == inquiry.tenant_id,
                 Document.ai_source_id == doc_id,
             )
-            .with_for_update()
+            .with_for_update(read=True)
             .execution_options(populate_existing=True)
         )
         source = (
