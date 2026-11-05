@@ -394,6 +394,8 @@ async def apply_result(session, result, *, tenant, lease_token=None):
             request.error_code = "AI_PIPELINE_FAILED" if result.error else None
             request.phase = "done"
             request.lease_token = request.lease_until = None
+            # 공통 답변 저장이 원본 검수 결과를 함께 보존한다. 최종 hash와 commit은 아래에서 확정한다.
+            run.result = raw
             automatic = await handle_automatic_response(session, inquiry, request, run, result, draft)
         if stale and lease_token is not None and request.run_id == run.run_id:
             request.phase = "superseded"

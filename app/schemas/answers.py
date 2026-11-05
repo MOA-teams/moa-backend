@@ -32,8 +32,8 @@ class AnswerResponse(Contract):
     inquiry_id: str
     inquiry_revision: int
     status: InquiryStatus
-    delivery_mode: Literal["담당자"]
-    agent_id: str
+    delivery_mode: Literal["담당자", "자동"]
+    agent_id: str | None
     answered_at: datetime
 
 

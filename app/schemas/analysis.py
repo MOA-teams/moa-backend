@@ -220,6 +220,7 @@ class DraftView(Draft):
 
 
 class AutomaticResponseView(Contract):
+    answer_id: str | None = None
     run_id: RunID
     delivery_action: Literal["담당자 검토", "추가 질문 전송", "자동 답변 전송"]
     message_id: MessageID | None

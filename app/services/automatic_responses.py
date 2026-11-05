@@ -1,5 +1,6 @@
 """결과 적용 중 자동 발송 여부를 결정한다. 호출자가 문의 잠금과 commit을 소유한다."""
 
+import asyncio
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -16,15 +17,18 @@ from app.core.enums import (
     MessageType,
     RunStatus,
 )
+from app.core.errors import APIError
 from app.core.ids import IDSpaceExhausted
 from app.core.rag import RagError, get_rag_client
 from app.db.models import (
     AutomaticResponse,
     Document,
-    DocumentCounter,
+    Answer,
     DocumentVersion,
     Message,
 )
+from app.schemas.answers import AnswerRequest
+from app.services.knowledge import lock_knowledge
 
 
 def document_stamp(document, version):
@@ -64,32 +68,12 @@ async def current_evidence(session, inquiry, request, result, policy):
         for c in draft.citations
     ):
         return "CITATION_UNSUPPORTED", {}
-    if request.knowledge_snapshot is None or result.knowledge_revision is None:
+    if request.backend_knowledge_revision is None or result.knowledge_revision is None:
         return "KNOWLEDGE_BASELINE_MISSING", {}
-    # 신규 문서는 counter를 먼저 잠그고 생성된다. 같은 행의 공유 잠금으로
-    # 새 문서 삽입을 막고, 모든 기존 문서의 공유 잠금으로 버전/상태 변경을 막는다.
-    # 여러 문의의 발송은 공유 잠금을 함께 보유하므로 문서 순서가 달라도 교착하지 않는다.
-    counter = await session.scalar(
-        select(DocumentCounter)
-        .where(
-            DocumentCounter.tenant_id == inquiry.tenant_id,
-        )
-        .with_for_update(read=True)
-    )
-    if counter is None:
-        return "KNOWLEDGE_BASELINE_MISSING", {}
-    await session.scalars(
-        select(Document)
-        .where(
-            Document.tenant_id == inquiry.tenant_id,
-        )
-        .order_by(Document.doc_id)
-        .with_for_update(read=True)
-    )
-    if (
-        await capture_knowledge(session, inquiry.tenant_id)
-        != request.knowledge_snapshot
-    ):
+    # 6단계와 동일하게 기업 변경번호를 문서보다 먼저 잠근다.
+    # 모든 문서/worker 변경은 이 잠금과 DB 트리거의 변경번호에 참여한다.
+    knowledge = await lock_knowledge(session, inquiry.tenant_id)
+    if knowledge.knowledge_revision != request.backend_knowledge_revision:
         return "KNOWLEDGE_CHANGED", {}
     checked = {}
     rag = get_rag_client()
@@ -130,8 +114,6 @@ async def current_evidence(session, inquiry, request, result, policy):
         ):
             return "EVIDENCE_NOT_CURRENT", checked
         stamp = document_stamp(document, source)
-        if request.knowledge_snapshot.get(doc_id) != stamp:
-            return "KNOWLEDGE_CHANGED", checked
         try:
             view = await rag.view(inquiry.tenant_id, doc_id, version)
         except RagError:
@@ -187,22 +169,55 @@ def answer_block_reason(inquiry, request, result, draft, policy):
     return None
 
 
-async def persist_customer_message(session, inquiry, *, text, message_type, sender):
-    """문의 잠금 하에서 다음 순번의 고객 메시지를 저장한다. revision·상태·commit은 호출자 책임이다.
-
-    6단계와의 통합 시 수동 발송도 이 저장 경로를 사용해야 한다.
-    이 함수만으로 Answer/승인 레코드 또는 중복 검사까지 수행한 것으로 간주하지 않는다.
-    """
+async def persist_question(session, inquiry, text):
+    """정보 수집 질문에는 Answer/평가를 만들지 않는다. commit은 결과 적용의 책임이다."""
     message = Message(
         inquiry_id=inquiry.inquiry_id,
         sequence=inquiry.last_message_sequence + 1,
-        sender=sender,
-        message_type=message_type,
+        sender=MessageSender.AI_AUTO,
+        message_type=MessageType.INFORMATION_REQUEST,
         text=text,
     )
     session.add(message)
     await session.flush()
-    return message
+    inquiry.last_message_sequence = message.sequence
+    inquiry.revision += 1
+    inquiry.status = InquiryStatus.NEEDS_INFO
+    inquiry.processing_stage = "고객 응답 대기"
+    return message.message_id
+
+
+async def persist_automatic_answer(
+    session, inquiry, customer, request, run, result, draft, decision
+):
+    # 결과 적용 → 자동 처리 → 답변 저장의 import 순환을 함수 경계에서 끊는다.
+    from app.services.answers import persist_answer
+
+    response = await persist_answer(
+        session,
+        inquiry=inquiry,
+        customer=customer,
+        user=None,
+        payload=AnswerRequest(
+            draft_id=draft.public_id,
+            draft_revision=draft.revision,
+            expected_inquiry_revision=inquiry.revision,
+            expected_last_customer_message_id=customer.public_id,
+            expected_backend_knowledge_revision=request.backend_knowledge_revision,
+            answer_text=result.draft.answer_text,
+            evidence=result.draft.evidence,
+        ),
+        knowledge_revision=request.backend_knowledge_revision,
+        draft=draft,
+        run=run,
+        automatic_approval={
+            "policy": decision.policy,
+            "validation": decision.validation,
+        },
+    )
+    return await session.scalar(
+        select(Message.message_id).where(Message.public_id == response.message_id)
+    )
 
 
 async def handle_automatic_response(session, inquiry, request, run, result, draft):
@@ -218,6 +233,7 @@ async def handle_automatic_response(session, inquiry, request, run, result, draf
         validation={
             "inquiry_revision": inquiry.revision,
             "knowledge_revision": result.knowledge_revision,
+            "backend_knowledge_revision": request.backend_knowledge_revision,
             "draft_revision": draft.revision if draft else None,
             "delivery_mode": "자동",
             "agent_id": None,
@@ -274,9 +290,13 @@ async def handle_automatic_response(session, inquiry, request, run, result, draf
         else:
             reason = answer_block_reason(inquiry, request, result, draft, policy)
             if reason is None:
-                reason, evidence = await current_evidence(
-                    session, inquiry, request, result, policy
-                )
+                try:
+                    async with asyncio.timeout(10):
+                        reason, evidence = await current_evidence(
+                            session, inquiry, request, result, policy
+                        )
+                except TimeoutError:
+                    reason, evidence = "EVIDENCE_SYNC_UNAVAILABLE", {}
                 decision.validation = {**decision.validation, "documents": evidence}
                 if reason is None:
                     kind, text = MessageType.FINAL_ANSWER, result.draft.answer_text
@@ -284,30 +304,38 @@ async def handle_automatic_response(session, inquiry, request, run, result, draf
         # 예상 가능한 발급/제약 실패만 savepoint로 격리한다. DB 장애는 전체 결과를 롤백해 재시도한다.
         try:
             async with session.begin_nested():
-                message = await persist_customer_message(
-                    session,
-                    inquiry,
-                    text=text,
-                    message_type=kind,
-                    sender=MessageSender.AI_AUTO,
-                )
+                if kind == MessageType.INFORMATION_REQUEST:
+                    message_id = await persist_question(session, inquiry, text)
+                else:
+                    message_id = await persist_automatic_answer(
+                        session,
+                        inquiry,
+                        customer,
+                        request,
+                        run,
+                        result,
+                        draft,
+                        decision,
+                    )
         except IDSpaceExhausted:
             reason = "ID_SPACE_EXHAUSTED"
+            await session.refresh(inquiry)
         except IntegrityError:
             reason = "DELIVERY_CONFLICT"
+            await session.refresh(inquiry)
+        except APIError as exc:
+            if exc.code != "ANSWER_ALREADY_SENT":
+                raise
+            reason = "CUSTOMER_MESSAGE_ALREADY_RESPONDED"
+            await session.refresh(inquiry)
         else:
-            inquiry.last_message_sequence = message.sequence
-            inquiry.revision += 1
             decision.delivered_revision = inquiry.revision
-            decision.message_id = message.message_id
-            if kind == MessageType.INFORMATION_REQUEST:
-                decision.action = "추가 질문 전송"
-                inquiry.status = InquiryStatus.NEEDS_INFO
-                inquiry.processing_stage = "고객 응답 대기"
-            else:
-                decision.action = "자동 답변 전송"
-                inquiry.status = InquiryStatus.ANSWERED
-                inquiry.processing_stage = "답변 완료"
+            decision.message_id = message_id
+            decision.action = (
+                "추가 질문 전송"
+                if kind == MessageType.INFORMATION_REQUEST
+                else "자동 답변 전송"
+            )
     if reason:
         decision.review_reasons = [reason]
         inquiry.processing_stage = "검토 대기"
@@ -323,6 +351,11 @@ async def response_view(session, decision):
         await session.get(Message, decision.message_id) if decision.message_id else None
     )
     return {
+        "answer_id": await session.scalar(
+            select(Answer.public_id).where(Answer.message_id == decision.message_id)
+        )
+        if decision.message_id
+        else None,
         "run_id": decision.run_id,
         "delivery_action": decision.action,
         "message_id": message.public_id if message else None,
