@@ -3,6 +3,7 @@ import io
 import json
 import math
 import sys
+from contextlib import closing
 
 from app.services.document_extraction import ExtractionError
 
@@ -51,12 +52,12 @@ def extract(data: bytes, mime: str) -> str:
             raise ExtractionError("DOCUMENT_PAGE_LIMIT")
         pages = []
         for index in range(len(document)):
-            with document[index] as page:
-                with page.get_textpage() as textpage:
-                    text = textpage.get_text_range()
+            with closing(document[index]) as page:
+                with closing(page.get_textpage()) as textpage:
+                    text = textpage.get_text_bounded()
                 if not text.strip():
                     check_pixels(math.ceil(page.get_width() * 2), math.ceil(page.get_height() * 2))
-                    with page.render(scale=2) as bitmap:
+                    with closing(page.render(scale=2)) as bitmap:
                         with bitmap.to_pil() as image:
                             text = ocr(image)
                 # 빈 페이지는 보존하되 문서 전체가 비었는지는 부모에서 검증한다.
